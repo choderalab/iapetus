@@ -92,7 +92,7 @@ def setup_calculation(gromacs_input_path=None, ligand_resseq=None):
     print('Adding restraints to protein...')
     sigma_protein = 2.0 * unit.angstroms # stddev of fluctuations of protein atoms
     K_protein = kT / (sigma_protein**2) # spring constant
-    energy_expression = '(K/2)*((x-x0)^2 + (y-y0)^2 + (z-z0)^2);'
+    energy_expression = '(K_protein/2)*((x-x0)^2 + (y-y0)^2 + (z-z0)^2);'
     force = openmm.CustomExternalForce(energy_expression)
     force.addGlobalParameter('K_protein', K_protein)
     force.addPerParticleParameter('x0')
@@ -115,10 +115,10 @@ def setup_calculation(gromacs_input_path=None, ligand_resseq=None):
     context = openmm.Context(system, integrator)
     context.setPositions(grofile.positions)
     potential_energy = context.getState(getEnergy=True).getPotentialEnergy()
-    print('Initial energy: %10.3f kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
+    print('Initial energy: {:10.3f} kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
     context = openmm.LocalEnergyMinimizer.minimize(context)
     potential_energy = context.getState(getEnergy=True).getPotentialEnergy()
-    print('Final energy:   %10.3f kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
+    print('Final energy:   {:10.3f} kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
     del context, integrator
 
 def main():
