@@ -17,8 +17,13 @@ setup(
     license='MIT',
     packages=['iapetus', "iapetus.tests"],
     # Optional include package data to ship with your package
-    package_data={'iapetus': []  # + ["data/*.dat"]
+    package_data={'iapetus': [] + ["data/*/*"]
                   },
+    entry_points={
+          'console_scripts': [
+              'iapetus = iapetus.iapetus:main'
+          ]
+      },
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # author_email='me@place.org',      # Author email
     # url='http://www.my_package.com',  # Website
