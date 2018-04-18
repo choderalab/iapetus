@@ -35,6 +35,7 @@ install:
     # Create test environment for package
   - conda create -n test python=$PYTHON_VER pip pytest pytest-cov
   - source activate test
+  - conda config --add channels omnia --add channels conda-forge
 
     # Install pip only modules
   - pip install codecov
