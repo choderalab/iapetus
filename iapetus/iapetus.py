@@ -56,7 +56,7 @@ def setup_calculation(gromacs_input_path=None, ligand_resseq=None):
     def get_coordinates(atom):
         return mdtraj_refpdb.xyz[0,atom,:] * unit.nanometers
 
-    ligand_atoms = mdtraj_topology.select('(resseq {}) and (mass > 1.5)'.format(ligand_resseq))
+    ligand_atoms = mdtraj_topology.select('(residue {}) and (mass > 1.5)'.format(ligand_resseq))
     plane_atoms = mdtraj_topology.select('((residue 342 and resname GLY) or (residue 97 and resname ASP) or (residue 184 and resname SER)) and (name CA)')
     axis_center_atom = mdtraj_topology.select('residue 128 and resname ALA and name CA')[0]
     pore_top_atom = mdtraj_topology.select('residue 226 and resname SER and name CA')[0]
@@ -68,7 +68,7 @@ def setup_calculation(gromacs_input_path=None, ligand_resseq=None):
     print('pore bottom (y-min): {} : {}'.format(pore_bottom_atom, get_coordinates(pore_bottom_atom)))
 
     if len(ligand_atoms) == 0:
-        raise ValueError('Ligand residue name {} not found'.format(ligand_resname))
+        raise ValueError('Ligand residue name {} not found'.format(ligand_resseq))
 
 def main():
     """Set up and run a porin permeation PMF calculation.
@@ -77,12 +77,12 @@ def main():
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
     parser.add_argument('--gromacs', dest='gromacs_input_path', action='store',
                         help='gromacs input path')
-    parser.add_argument('--ligand', dest='ligand_resseq', action='store',
+    parser.add_argument('--ligseq', dest='ligand_resseq', action='store',
                         help='ligand residue sequence id')
     args = parser.parse_args()
 
     # Determine ligand residue name
-    ligand_resname = args.ligand_resname
+    ligand_resseq = args.ligand_resseq
 
     # Determine the path to gromacs input
     gromacs_input_path = os.path.abspath(args.gromacs_input_path)
