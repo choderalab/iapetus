@@ -116,7 +116,7 @@ def setup_calculation(gromacs_input_path=None, ligand_resseq=None):
     context.setPositions(grofile.positions)
     potential_energy = context.getState(getEnergy=True).getPotentialEnergy()
     print('Initial energy: {:10.3f} kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
-    context = openmm.LocalEnergyMinimizer.minimize(context)
+    openmm.LocalEnergyMinimizer.minimize(context)
     potential_energy = context.getState(getEnergy=True).getPotentialEnergy()
     print('Final energy:   {:10.3f} kcal/mol'.format(potential_energy / unit.kilocalories_per_mole))
     del context, integrator
