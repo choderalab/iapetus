@@ -1,8 +1,8 @@
 iapetus
 ==============================
 [//]: # (Badges)
-[![Travis Build Status](https://travis-ci.org/REPLACE_WITH_OWNER_ACCOUNT/iapetus.png)](https://travis-ci.org/REPLACE_WITH_OWNER_ACCOUNT/iapetus)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/iapetus/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/iapetus/branch/master)
+[![Travis Build Status](https://travis-ci.org/choderalab/iapetus.png)](https://travis-ci.org/choderalab/iapetus)
+[![codecov](https://codecov.io/gh/choderalab/iapetus/branch/master/graph/badge.svg)](https://codecov.io/gh/choderalab/iapetus/branch/master)
 
 Open source toolkit for predicting bacterial porin permeation
 
