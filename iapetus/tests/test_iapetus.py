@@ -38,12 +38,12 @@ def test_gromacs():
     output_filename = 'output.nc' # TODO: Use tmpfile
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
     simulation.setup()
-    simulation.run()
+    simulation.run(n_iterations=2)
 
 def test_cli():
     """Test the CLI"""
     from iapetus import main
     gromacs_input_path = get_data_filename('arg/')
     # TODO: use tmpfile for output.nc
-    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", "output.nc"]
+    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", "output.nc", "--niterations", "2"]
     main()

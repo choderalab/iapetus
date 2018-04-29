@@ -10,7 +10,8 @@ import pathlib
 import argparse
 import logging
 
-import mdtraj
+import mdtraj as md
+import numpy as np
 
 from simtk import openmm, unit
 from simtk.openmm import app
@@ -64,7 +65,7 @@ class SimulatePermeation(object):
         self.pdbfile = app.PDBFile(pdb_filename)
 
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicing
-        self.mdtraj_refpdb = mdtraj.load(pdb_filename)
+        self.mdtraj_refpdb = md.load(pdb_filename)
         self.mdtraj_topology = self.mdtraj_refpdb.topology
 
         # Store output filename
@@ -91,6 +92,9 @@ class SimulatePermeation(object):
         # Create the system
         self._create_system()
 
+        # DEBUG: Alchemically soften ligand
+        self._alchemically_modify_ligand()
+
         # Add a barostat
         # TODO: Is this necessary, sicne ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
         self._add_barostat()
@@ -110,8 +114,24 @@ class SimulatePermeation(object):
         # Minimize
         self.sampler_state =self._minimize_sampler_state(self.reference_thermodynamic_state, self.sampler_state)
 
-        # TODO: Create ThermodynamicStates for umbrella sampling along pore
-        thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
+        # Create ThermodynamicStates for umbrella sampling along pore
+        self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
+
+        # Set up simulation
+        from yank.multistate import SAMSSampler
+        self.simulation = SAMSSampler.create(self.thermodynamic_states, [self.sampler_state], storage=self.output_filename)
+
+    def run(self, n_iterations=1):
+        """
+        Run the sampler for a specified number of iterations
+
+        Parameters
+        ----------
+        n_iterations : int, optional, default=1
+            Number of iterations to run
+
+        """
+        self.simulation.run(n_iterations)
 
     def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.5*unit.angstroms):
         """
@@ -135,7 +155,7 @@ class SimulatePermeation(object):
         pore_top = self._get_reference_coordinates(pore_top_atom)
         print('pore top (y-max): {} : {}'.format(pore_top_atom, pore_top))
         pore_bottom_atom = self.mdtraj_topology.select('residue 88 and resname VAL and name CA')[0]
-        pore_bottom = self._get_reference_coordinates(pore_top_atom)
+        pore_bottom = self._get_reference_coordinates(pore_bottom_atom)
         print('pore bottom (y-min): {} : {}'.format(pore_bottom_atom, pore_bottom))
 
         # Determine ligand atoms
@@ -143,7 +163,7 @@ class SimulatePermeation(object):
         print('Determining ligand atoms using "{}"...'.format(selection))
         ligand_atoms = self.mdtraj_topology.select(selection)
         if len(ligand_atoms) == 0:
-            raise ValueError('Ligand residue name {} not found'.format(ligand_resseq))
+            raise ValueError('Ligand residue name {} not found'.format(self.ligand_resseq))
         print('ligand heavy atoms: {}'.format(ligand_atoms))
 
         # Determine protein atoms
@@ -156,14 +176,18 @@ class SimulatePermeation(object):
         axis_bottom = (axis_center[0], pore_bottom[1], axis_center[2])
         axis_top = (axis_center[0], pore_top[1], axis_center[2])
         axis_distance = pore_top[1] - pore_bottom[1]
+        print('axis_distance: {}'.format(axis_distance))
 
         # Compute spacing and spring constant
-        nstates = (axis_distance / spacing) + 1
-        spacing = axis_distance / float(nstates)
-        K_y = self.kT / (spacing**2) # spring constant
+        nstates = int(axis_distance / spacing) + 1
+        print('nstates: {}'.format(nstates))
+        sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
+        K_y = self.kT / (sigma_y**2) # spring constant
 
         # Compute restraint width
-        sigma_xz = unit.sqrt( np.mean( (axis_center[0] - bottom_protein_atoms[0])**2 + (axis_center[2] - bottom_protein_atoms[2])**2 ) )
+        # TODO: Come up with a better way to define pore width?
+        sigma_xz = unit.sqrt( (axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2 )  # stddev of force-free fluctuations in xz-plane
+        K_xz = self.kT / (sigma_xz**2) # spring constant
 
         # Create restraint state that encodes this axis
         from yank.restraints import RestraintState
@@ -173,26 +197,31 @@ class SimulatePermeation(object):
         energy_expression += 'r = distance(g1,g2);'
         energy_expression += 'theta = angle(g1,g2,g3);'
         energy_expression += 'r0 = lambda_restraint * (rmax - rmin) + rmin;'
-        force = openmm.CustomCentroidBondForce(1, energy_expression)
-        force.addGlobalParameter('lambda_restraint', 1) # TODO: lambda_restraint or lambda_restraints?
+        force = openmm.CustomCentroidBondForce(3, energy_expression)
+        force.addGlobalParameter('lambda_restraints', 1.0)
         force.addGlobalParameter('K_y', K_y)
         force.addGlobalParameter('K_xz', K_xz)
-        force.addGroup(ligand_atoms)
-        force.addGroup(bottom_protein_atoms)
-        force.addGroup(top_protein_atoms)
+        force.addGroup([int(index) for index in ligand_atoms])
+        force.addGroup([int(index) for index in bottom_protein_atoms])
+        force.addGroup([int(index) for index in top_protein_atoms])
         force.addBond([0,1,2], [])
         self.system.addForce(force)
+        # Update reference thermodynamic state
+        self.reference_thermodynamic_state.system = self.system
 
         # Create alchemical state
         from openmmtools.alchemy import AlchemicalState
-        alchemical_state = AlchemicalState()
+        alchemical_state = AlchemicalState.from_system(self.system)
+
+        # Create restraint state
+        restraint_state = RestraintState(lambda_restraints=1.0)
 
         # Create thermodynamic states to be sampled
         # TODO: Should we include an unbiased state?
         thermodynamic_states = list()
-        for state_index in range(nstates):
-            alchemical_state.lambda_restraints = float(state_index) / float(nstates - 1)
-            compound_state = CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
+        for lambda_restraints in np.linspace(0, 1, nstates):
+            restraint_state.lambda_restraints = lambda_restraints
+            compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
 
         return thermodynamic_states
 
@@ -206,8 +235,43 @@ class SimulatePermeation(object):
         print('Creating System...')
         # TODO: Allow these to be user-specified parameters
         kwargs = { 'nonbondedMethod' : app.PME, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
-        self.system = self.topfile.createSystem(**kwargs)
-        print('System has {} particles'.format(self.system.getNumParticles()))
+        system = self.topfile.createSystem(**kwargs)
+
+        # Fix particles with zero LJ sigma
+        for force in system.getForces():
+            if force.__class__.__name__ == 'NonbondedForce':
+                for index in range(system.getNumParticles()):
+                    [charge, sigma, epsilon] = force.getParticleParameters(index)
+                    if sigma / unit.nanometers == 0.0:
+                        force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
+
+        print('System has {} particles'.format(system.getNumParticles()))
+        self.system = system
+
+    def _alchemically_modify_ligand(self):
+        """
+        Alchemically soften ligand.
+        """
+        # Determine ligand atoms
+        ligand_atoms = self.mdtraj_topology.select('residue {}'.format(self.ligand_resseq))
+        if len(ligand_atoms) == 0:
+            raise ValueError('Ligand residue name {} not found'.format(self.ligand_resseq))
+        print('ligand heavy atoms: {}'.format(ligand_atoms))
+
+        # Create alchemically-modified system
+        from openmmtools.alchemy import AbsoluteAlchemicalFactory, AlchemicalRegion, AlchemicalState
+        factory = AbsoluteAlchemicalFactory(consistent_exceptions=False)
+        alchemical_region = AlchemicalRegion(alchemical_atoms=ligand_atoms)
+        alchemical_system = factory.create_alchemical_system(self.system, alchemical_region)
+
+        # Soften ligand
+        alchemical_state = AlchemicalState.from_system(alchemical_system)
+        alchemical_state.lambda_sterics = 0.5
+        alchemical_state.lambda_electrostatics = 0.0
+        alchemical_state.apply_to_system(alchemical_system)
+
+        # Update system
+        self.system = alchemical_system
 
     def _add_barostat(self):
         """Add a barostat to the system if one doesn't already exist.
@@ -327,6 +391,8 @@ def main():
                         help='ligand residue sequence id')
     parser.add_argument('--output', dest='output_filename', action='store', default='output.nc',
                         help='output netcdf filename (default: output.nc)')
+    parser.add_argument('--niterations', dest='n_iterations', action='store', default=10000,
+                        help='number of iterations to run (default: 10000)')
     args = parser.parse_args()
 
     # Check all required arguments have been provided
@@ -347,7 +413,7 @@ def main():
     # TODO: Check if output files exist first and resume if so?
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
     simulation.setup()
-    simulation.run()
+    simulation.run(n_iterations=args.n_iterations)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
