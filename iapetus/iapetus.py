@@ -7,17 +7,19 @@ Handles the primary functions
 
 import os
 import pathlib
-import argparse
 import logging
+import argparse
 
 import mdtraj as md
 import numpy as np
+
+import yank
 
 from simtk import openmm, unit
 from simtk.openmm import app
 
 from openmmtools.constants import kB
-from openmmtools import integrators, states
+from openmmtools import integrators, states, mcmc
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -43,6 +45,9 @@ class SimulatePermeation(object):
         self.pressure = 1.0 * unit.atmospheres
         self.collision_rate = 1.0 / unit.picoseconds
         self.timestep = 4.0 * unit.femtoseconds
+        self.n_steps_per_iteration = 1250
+        self.n_iterations = 10000
+        self.checkpoint_interval = 50
 
         # Check input
         if gromacs_input_path is None:
@@ -118,20 +123,19 @@ class SimulatePermeation(object):
         self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
 
         # Set up simulation
-        from yank.multistate import SAMSSampler
-        self.simulation = SAMSSampler.create(self.thermodynamic_states, [self.sampler_state], storage=self.output_filename)
+        from yank.multistate import SAMSSampler, MultiStateReporter
 
-    def run(self, n_iterations=1):
+        move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
+        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations)
+        self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval)
+        self.simulation.create(thermodynamic_states=self.thermodynamic_states, sampler_states=[self.sampler_state], storage=self.reporter)
+
+    def run(self):
         """
         Run the sampler for a specified number of iterations
 
-        Parameters
-        ----------
-        n_iterations : int, optional, default=1
-            Number of iterations to run
-
         """
-        self.simulation.run(n_iterations)
+        self.simulation.run()
 
     def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.5*unit.angstroms):
         """
@@ -207,11 +211,11 @@ class SimulatePermeation(object):
         force.addBond([0,1,2], [])
         self.system.addForce(force)
         # Update reference thermodynamic state
-        self.reference_thermodynamic_state.system = self.system
+        self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
 
         # Create alchemical state
         from openmmtools.alchemy import AlchemicalState
-        alchemical_state = AlchemicalState.from_system(self.system)
+        alchemical_state = AlchemicalState.from_system(self.reference_thermodynamic_state.system)
 
         # Create restraint state
         restraint_state = RestraintState(lambda_restraints=1.0)
@@ -222,6 +226,7 @@ class SimulatePermeation(object):
         for lambda_restraints in np.linspace(0, 1, nstates):
             restraint_state.lambda_restraints = lambda_restraints
             compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
+            thermodynamic_states.append(compound_state)
 
         return thermodynamic_states
 
@@ -412,8 +417,9 @@ def main():
     # Set up the calculation
     # TODO: Check if output files exist first and resume if so?
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
+    simulation.n_iterations = args.n_iterations
     simulation.setup()
-    simulation.run(n_iterations=args.n_iterations)
+    simulation.run()
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own

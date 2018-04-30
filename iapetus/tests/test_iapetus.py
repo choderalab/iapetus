@@ -3,11 +3,15 @@ Unit and regression test for the iapetus package.
 """
 
 # Import package, test suite, and other packages as needed
-import iapetus
-import pytest
-import sys
 import os
+import sys
+import pytest
+import errno
+import shutil
+import tempfile
 from pkg_resources import resource_filename
+
+import iapetus
 
 def get_data_filename(relative_path):
     """Get the full path to one of the reference files shipped for testing
@@ -35,15 +39,20 @@ def test_gromacs():
     from iapetus import SimulatePermeation
     gromacs_input_path = get_data_filename('arg/')
     ligand_resseq = 423
-    output_filename = 'output.nc' # TODO: Use tmpfile
+    tmp_dir = tempfile.mkdtemp()
+    output_filename = os.path.join(tmp_dir, 'output.nc')
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
+    simulation.n_iterations = 2
     simulation.setup()
-    simulation.run(n_iterations=2)
+    simulation.run()
+    shutil.rmtree(tmp_dir)
 
 def test_cli():
     """Test the CLI"""
     from iapetus import main
     gromacs_input_path = get_data_filename('arg/')
-    # TODO: use tmpfile for output.nc
-    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", "output.nc", "--niterations", "2"]
+    tmp_dir = tempfile.mkdtemp()
+    output_filename = os.path.join(tmp_dir, 'output.nc')
+    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2"]
     main()
+    shutil.rmtree(tmp_dir)
