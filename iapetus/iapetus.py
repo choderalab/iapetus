@@ -206,8 +206,8 @@ class SimulatePermeation(object):
         energy_expression += 'r0 = lambda_restraint * (rmax - rmin) + rmin;'
         force = openmm.CustomCentroidBondForce(3, energy_expression)
         force.addGlobalParameter('lambda_restraints', 1.0)
-        force.addGlobalParameter('K_y', K_y)
-        force.addGlobalParameter('K_xz', K_xz)
+        force.addGlobalParameter('K_parallel', K_y)
+        force.addGlobalParameter('K_orthogonal', K_xz)
         force.addGroup([int(index) for index in ligand_atoms])
         force.addGroup([int(index) for index in bottom_protein_atoms])
         force.addGroup([int(index) for index in top_protein_atoms])
