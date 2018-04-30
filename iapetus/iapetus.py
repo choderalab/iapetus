@@ -203,7 +203,7 @@ class SimulatePermeation(object):
         energy_expression += 'r_orthogonal = r*sin(theta);'
         energy_expression += 'r = distance(g1,g2);'
         energy_expression += 'theta = angle(g1,g2,g3);'
-        energy_expression += 'r0 = lambda_restraint * (rmax - rmin) + rmin;'
+        energy_expression += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
         force = openmm.CustomCentroidBondForce(3, energy_expression)
         force.addGlobalParameter('lambda_restraints', 1.0)
         force.addGlobalParameter('K_parallel', K_y)
