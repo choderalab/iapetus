@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # TODO: Control logging level with CLI
 logging.root.setLevel(logging.DEBUG)
 logging.basicConfig(level=logging.DEBUG)
+yank.utils.config_root_logger(verbose=True)
 
 class SimulatePermeation(object):
     """
