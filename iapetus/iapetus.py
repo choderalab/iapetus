@@ -187,7 +187,8 @@ class SimulatePermeation(object):
         print('axis_distance: {}'.format(axis_distance))
 
         # Compute spacing and spring constant
-        nstates = int(axis_distance / spacing) + 1
+        expansion_factor = 1.2
+        nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
         K_y = self.kT / (sigma_y**2) # spring constant
@@ -196,6 +197,10 @@ class SimulatePermeation(object):
         # TODO: Come up with a better way to define pore width?
         sigma_xz = unit.sqrt( (axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2 )  # stddev of force-free fluctuations in xz-plane
         K_xz = self.kT / (sigma_xz**2) # spring constant
+
+        dr = axis_distance * (expansion_factor - 1.0)/2.0
+        rmax = axis_distance + dr
+        rmin = - dr
 
         # Create restraint state that encodes this axis
         from yank.restraints import RestraintState
@@ -209,6 +214,8 @@ class SimulatePermeation(object):
         force.addGlobalParameter('lambda_restraints', 1.0)
         force.addGlobalParameter('K_parallel', K_y)
         force.addGlobalParameter('K_orthogonal', K_xz)
+        force.addGlobalParameter('rmax', rmax)
+        force.addGlobalParameter('rmin', rmin)
         force.addGroup([int(index) for index in ligand_atoms])
         force.addGroup([int(index) for index in bottom_protein_atoms])
         force.addGroup([int(index) for index in top_protein_atoms])
