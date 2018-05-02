@@ -18,20 +18,16 @@ import yank
 from simtk import openmm, unit
 from simtk.openmm import app
 
+import openmmtools
 from openmmtools.constants import kB
 from openmmtools import integrators, states, mcmc
 
 logger = logging.getLogger(__name__)
 
-# TODO: Control logging level with CLI
-logging.root.setLevel(logging.DEBUG)
-logging.basicConfig(level=logging.DEBUG)
-yank.utils.config_root_logger(verbose=True)
-
 class SimulatePermeation(object):
     """
     """
-    def __init__(self, gromacs_input_path=None, ligand_resseq=None, output_filename=None):
+    def __init__(self, gromacs_input_path=None, ligand_resseq=None, output_filename=None, verbose=False):
         """Set up a SAMS permeation PMF simulation.
 
         Parameters
@@ -41,9 +37,16 @@ class SimulatePermeation(object):
         ligand_resseq : str, optional, default='MOL'
             Resdiue sequence id for ligand in reference PDB file
         output_filename : str, optional, default=None
-            NetCDF output filename.
+            NetCDF output filename
+        verbose : bool, optional, default=False
+            If True, print verbose output
 
         """
+        # Setup general logging
+        logging.root.setLevel(logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
+        yank.utils.config_root_logger(verbose=verbose, log_file_path=None)
+
         # Set default parameters
         self.temperature = 310.0 * unit.kelvin
         self.pressure = 1.0 * unit.atmospheres
@@ -120,25 +123,55 @@ class SimulatePermeation(object):
         # Create reference thermodynamic state
         self.reference_thermodynamic_state = states.ThermodynamicState(system=self.system, temperature=self.temperature, pressure=self.pressure)
 
-        # Minimize
-        self.sampler_state =self._minimize_sampler_state(self.reference_thermodynamic_state, self.sampler_state)
+        # Minimize reference state
+        self.sampler_state = self._minimize_sampler_state(self.reference_thermodynamic_state, self.sampler_state)
 
         # Create ThermodynamicStates for umbrella sampling along pore
         self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
 
+        # Minimize initial thermodynamic state
+        initial_state_index = 0
+        self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
+
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
-
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
         self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations)
         self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval)
-        self.simulation.create(thermodynamic_states=self.thermodynamic_states, sampler_states=[self.sampler_state], storage=self.reporter)
+        self.simulation.create(thermodynamic_states=self.thermodynamic_states,
+                               unsampled_thermodynamic_states=[self.reference_thermodynamic_state],
+                               sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
+                               storage=self.reporter)
 
-    def run(self):
+    def run(self, platform_name=None, precision=None, max_n_contexts=None):
         """
         Run the sampler for a specified number of iterations
 
+        Parameters
+        ----------
+        platform_name : str, optional, default=None
+            Name of platform, or 'fastest' if fastest platform should be automatically selected
+        precision : str, optional, default=None
+            Precision to use, or None to automatically select
+        max_n_contexts : int, optional, default=None
+            Maximum number of contexts to use
+
         """
+        # Configure ContextCache, platform and precision
+        from yank.experiment import ExperimentBuilder
+        platform = ExperimentBuilder._configure_platform(args.platform, args.precision)
+
+        try:
+            openmmtools.cache.global_context_cache.platform = platform
+        except RuntimeError:
+            # The cache has been already used. Empty it before switching platform.
+            openmmtools.cache.global_context_cache.empty()
+            openmmtools.cache.global_context_cache.platform = platform
+
+        if max_n_contexts is not None:
+            openmmtools.cache.global_context_cache.capacity = max_n_contexts
+
+        # Run the simulation
         self.simulation.run()
 
     def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.5*unit.angstroms):
@@ -358,7 +391,8 @@ class SimulatePermeation(object):
         integrator = FIREMinimizationIntegrator(tolerance=tolerance)
 
         # Create context
-        context = thermodynamic_state.create_context(integrator)
+        #context = thermodynamic_state.create_context(integrator)
+        context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state, integrator)
 
         # Set initial positions and box vectors.
         sampler_state.apply_to_context(context)
@@ -392,7 +426,7 @@ class SimulatePermeation(object):
         logger.debug('final energy {:8.3f}kT'.format(final_energy))
 
         # Clean up the integrator
-        del context, integrator
+        #del context, integrator
 
         return sampler_state
 
@@ -409,6 +443,14 @@ def main():
                         help='output netcdf filename (default: output.nc)')
     parser.add_argument('--niterations', dest='n_iterations', action='store', default=10000,
                         help='number of iterations to run (default: 10000)')
+    parser.add_argument('--verbose', dest='verbose', action='store_true', default=False,
+                        help='if set, will turn on verbose output (default: False)')
+    parser.add_argument('--platform', dest='platform', action='store', default='fastest',
+                        help='OpenMM platform to use, or "fastest" to auto-select fastest platform (default: fastest)')
+    parser.add_argument('--precision', dest='precision', action='store', default=None,
+                        help='OpenMM precision to use (default: None)')
+    parser.add_argument('--ncontexts', dest='max_n_contexts', action='store_int', default=None,
+                        help='Maximum number of contexts (default: None)')
     args = parser.parse_args()
 
     # Check all required arguments have been provided
@@ -427,10 +469,10 @@ def main():
 
     # Set up the calculation
     # TODO: Check if output files exist first and resume if so?
-    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
+    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     simulation.n_iterations = args.n_iterations
     simulation.setup()
-    simulation.run()
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own

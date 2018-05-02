@@ -44,7 +44,7 @@ def test_gromacs():
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
     simulation.n_iterations = 2
     simulation.setup()
-    simulation.run()
+    simulation.run(platform_name='CPU')
     shutil.rmtree(tmp_dir)
 
 def test_cli():
@@ -53,6 +53,6 @@ def test_cli():
     gromacs_input_path = get_data_filename('arg/')
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
-    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2"]
+    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU']
     main()
     shutil.rmtree(tmp_dir)
