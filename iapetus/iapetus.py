@@ -449,7 +449,7 @@ def main():
                         help='OpenMM platform to use, or "fastest" to auto-select fastest platform (default: fastest)')
     parser.add_argument('--precision', dest='precision', action='store', default=None,
                         help='OpenMM precision to use (default: None)')
-    parser.add_argument('--ncontexts', dest='max_n_contexts', action='store_int', default=None,
+    parser.add_argument('--ncontexts', dest='max_n_contexts', action='store', type='int', default=None,
                         help='Maximum number of contexts (default: None)')
     args = parser.parse_args()
 
