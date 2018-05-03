@@ -159,7 +159,7 @@ class SimulatePermeation(object):
         """
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
-        platform = ExperimentBuilder._configure_platform(args.platform, args.precision)
+        platform = ExperimentBuilder._configure_platform(platform_name, precision)
 
         try:
             openmmtools.cache.global_context_cache.platform = platform
