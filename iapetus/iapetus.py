@@ -51,7 +51,7 @@ class SimulatePermeation(object):
         self.temperature = 310.0 * unit.kelvin
         self.pressure = 1.0 * unit.atmospheres
         self.collision_rate = 1.0 / unit.picoseconds
-        self.timestep = 4.0 * unit.femtoseconds
+        self.timestep = 1.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
         self.checkpoint_interval = 50
