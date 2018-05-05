@@ -44,6 +44,8 @@ class SimulatePermeation(object):
             If True, print verbose output
 
         """
+        self._setup_complete = False
+
         # Setup general logging
         logging.root.setLevel(logging.DEBUG)
         logging.basicConfig(level=logging.DEBUG)
@@ -89,13 +91,13 @@ class SimulatePermeation(object):
         # Store ligand resseq
         self.ligand_resseq = ligand_resseq
 
-    def setup(self):
+    def _setup(self):
         """
         Set up calculation.
 
         """
         # Signal that system has now been set up
-        if hasattr(self, '_setup_complete'):
+        if self._setup_complete:
             raise Exception("System has already been set up---cannot run again.")
         self._setup_complete = True
 
@@ -159,6 +161,9 @@ class SimulatePermeation(object):
             Maximum number of contexts to use
 
         """
+        if not self._setup_complete:
+            self._setup()
+
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
         platform = ExperimentBuilder._configure_platform(platform_name, precision)
@@ -479,7 +484,6 @@ def main():
     # TODO: Check if output files exist first and resume if so?
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     simulation.n_iterations = args.n_iterations
-    simulation.setup()
     simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
