@@ -6,6 +6,8 @@ Handles the primary functions
 """
 
 import os
+import copy
+import time
 import pathlib
 import logging
 import argparse
@@ -236,6 +238,7 @@ class SimulatePermeation(object):
         rmin = - dr
 
         # Create restraint state that encodes this axis
+        print('Creating restraint...')
         from yank.restraints import RestraintState
         energy_expression = '(K_parallel/2)*(r_parallel-r0)^2 + (K_orthogonal/2)*r_orthogonal^2;'
         energy_expression += 'r_parallel = r*cos(theta);'
@@ -255,6 +258,7 @@ class SimulatePermeation(object):
         force.addBond([0,1,2], [])
         self.system.addForce(force)
         # Update reference thermodynamic state
+        print('Updating system in reference thermodynamic state...')
         self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
 
         # Create alchemical state
@@ -266,11 +270,15 @@ class SimulatePermeation(object):
 
         # Create thermodynamic states to be sampled
         # TODO: Should we include an unbiased state?
+        initial_time = time.time()
         thermodynamic_states = list()
+        compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
         for lambda_restraints in np.linspace(0, 1, nstates):
-            restraint_state.lambda_restraints = lambda_restraints
-            compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
-            thermodynamic_states.append(compound_state)
+            thermodynamic_state = copy.deepcopy(compound_state)
+            thermodynamic_state.lambda_restraints = lambda_restraints
+            thermodynamic_states.append(thermodynamic_state)
+        elapsed_time = time.time() - initial_time
+        print('Creating thermodynamic states took %.3f s' % elapsed_time)
 
         return thermodynamic_states
 
