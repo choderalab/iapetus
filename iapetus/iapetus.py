@@ -161,9 +161,6 @@ class SimulatePermeation(object):
             Maximum number of contexts to use
 
         """
-        if not self._setup_complete:
-            self._setup()
-
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
         platform = ExperimentBuilder._configure_platform(platform_name, precision)
@@ -177,6 +174,10 @@ class SimulatePermeation(object):
 
         if max_n_contexts is not None:
             openmmtools.cache.global_context_cache.capacity = max_n_contexts
+
+        # Set up the simulation if it has not yet been set up
+        if not self._setup_complete:
+            self._setup()
 
         # Run the simulation
         self.simulation.run()
