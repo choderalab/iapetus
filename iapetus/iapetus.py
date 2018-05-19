@@ -455,7 +455,7 @@ def main():
                         help='ligand residue sequence id')
     parser.add_argument('--output', dest='output_filename', action='store', default='output.nc',
                         help='output netcdf filename (default: output.nc)')
-    parser.add_argument('--niterations', dest='n_iterations', action='store', default=10000,
+    parser.add_argument('--niterations', dest='n_iterations', action='store', type=int, default=10000,
                         help='number of iterations to run (default: 10000)')
     parser.add_argument('--verbose', dest='verbose', action='store_true', default=False,
                         help='if set, will turn on verbose output (default: False)')

@@ -37,20 +37,19 @@ def test_iapetus_imported():
 def test_gromacs():
     """Test that gromacs input data can be processed"""
     from iapetus import SimulatePermeation
-    gromacs_input_path = get_data_filename('arg/')
+    gromacs_input_path = get_data_filename('comp7_nowat/')
     ligand_resseq = 423
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
     simulation.n_iterations = 2
-    simulation.setup()
     simulation.run(platform_name='CPU')
     shutil.rmtree(tmp_dir)
 
 def test_cli():
     """Test the CLI"""
     from iapetus import main
-    gromacs_input_path = get_data_filename('arg/')
+    gromacs_input_path = get_data_filename('comp7_nowat/')
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
     sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU', '--ncontexts', '3']
