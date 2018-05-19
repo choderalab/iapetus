@@ -15,7 +15,7 @@ iapetus
 1. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
 2. Next, install the release version of `iapetus` from the `omnia` Anaconda Cloud channel (check out our detailed installation section):
 ```bash
-$ conda install -c conda-forge -c omnia iapetus
+conda install -c conda-forge -c omnia iapetus
 ```
 
 ### Installing the development version
@@ -23,7 +23,7 @@ $ conda install -c conda-forge -c omnia iapetus
 1. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
 2. Next, install the release version of `iapetus` from the `omnia` Anaconda Cloud channel (check out our detailed installation section):
 ```bash
-$ conda install --yes -c conda-forge -c omnia iapetus
+conda install --yes -c conda-forge -c omnia iapetus
 ```
 3. Uninstall the release version and install the GitHub dev version via `pip`:
 ```bash
