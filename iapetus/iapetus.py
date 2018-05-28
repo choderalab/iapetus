@@ -83,6 +83,7 @@ class SimulatePermeation(object):
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicing
         self.mdtraj_refpdb = md.load(pdb_filename)
         self.mdtraj_topology = self.mdtraj_refpdb.topology
+        self.analysis_particle_indices = self.mdtraj_topology.select('not water')
 
         # Store output filename
         # TODO: Check if file already exists and resume if so
@@ -137,16 +138,13 @@ class SimulatePermeation(object):
         initial_state_index = 0
         self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
 
-        # TODO: Set analysis particles to just correspond to solute
-        
-
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
-        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations)
-        self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval)
+        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None)
+        self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval, analysis_particle_indices=self.analysis_particle_indices)
         self.simulation.create(thermodynamic_states=self.thermodynamic_states,
-                               unsampled_thermodynamic_states=[self.reference_thermodynamic_state],
+                               unsampled_thermodynamic_states=[self.reference_thermodynamic_state, self.reference_thermodynamic_state],
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
