@@ -11,6 +11,8 @@ import shutil
 import tempfile
 from pkg_resources import resource_filename
 
+from simtk import unit
+
 import iapetus
 
 def get_data_filename(relative_path):
@@ -43,6 +45,9 @@ def test_gromacs():
     output_filename = os.path.join(tmp_dir, 'output.nc')
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
     simulation.n_iterations = 2
+    simulation.pressure = None
+    simulation.n_steps_per_iteration = 50
+    simulation.timestep = 4.0 * unit.femtoseconds
     simulation.run(platform_name='CPU')
     shutil.rmtree(tmp_dir)
 
@@ -52,6 +57,6 @@ def test_cli():
     gromacs_input_path = get_data_filename('comp7_nowat/')
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
-    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU', '--ncontexts', '3']
+    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU', '--ncontexts', '3', '--testmode']
     main()
     shutil.rmtree(tmp_dir)

@@ -12,23 +12,32 @@ iapetus
 
 ### Installing the release version
 
-1. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
-2. Next, install the release version of `iapetus` from the `omnia` Anaconda Cloud channel (check out our detailed installation section):
+0. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
+1. Next, install the release version of `iapetus` from the `omnia` Anaconda Cloud channel (check out our detailed installation section):
 ```bash
 conda install -c conda-forge -c omnia iapetus
 ```
 
 ### Installing the development version
 
-1. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
-2. Next, install the release version of `iapetus` from the `omnia` Anaconda Cloud channel (check out our detailed installation section):
+0. If you don't already have Anaconda or Miniconda installed, install it from [here](https://conda.io/miniconda.html).
+1. Uninstall `iapetus` if you already have it installed
 ```bash
-conda install --yes -c conda-forge -c omnia iapetus
+pip uninstall --yes iapetus
 ```
-3. Uninstall the release version and install the GitHub dev version via `pip`:
+2. Check out the github repository
 ```bash
-conda remove --yes iapetus
-pip install git+https://github.com/choderalab/iapetus.git
+git clone https://github.com/choderalab/iapetus.git
+```
+3. Enter the `iapetus` directory
+```bash
+cd iapetus
+```
+4. Install `conda-build` and build/install the dev version and dependencies
+```bash
+conda install --yes conda-build
+conda build devtools/conda-recipe
+conda install --use-local iapetus-dev
 ```
 
 ## Examples

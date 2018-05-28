@@ -55,7 +55,7 @@ class SimulatePermeation(object):
         self.temperature = 310.0 * unit.kelvin
         self.pressure = 1.0 * unit.atmospheres
         self.collision_rate = 1.0 / unit.picoseconds
-        self.timestep = 1.0 * unit.femtoseconds
+        self.timestep = 2.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
         self.checkpoint_interval = 50
@@ -136,6 +136,9 @@ class SimulatePermeation(object):
         # Minimize initial thermodynamic state
         initial_state_index = 0
         self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
+
+        # TODO: Set analysis particles to just correspond to solute
+        
 
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
@@ -244,6 +247,7 @@ class SimulatePermeation(object):
         rmin = - dr
 
         # Create restraint state that encodes this axis
+        # TODO: Rework this as CustomCVForce so we can store it each iteration
         print('Creating restraint...')
         from yank.restraints import RestraintState
         energy_expression = '(K_parallel/2)*(r_parallel-r0)^2 + (K_orthogonal/2)*r_orthogonal^2;'
@@ -297,7 +301,13 @@ class SimulatePermeation(object):
         # Create System
         print('Creating System...')
         # TODO: Allow these to be user-specified parameters
-        kwargs = { 'nonbondedMethod' : app.PME, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
+        if self.pressure is None:
+            # We are simulating in a vacuum
+            nonbonded_method = app.NoCutoff
+        else:
+            # We are simulating in solvent
+            nonbonded_method = app.PME
+        kwargs = { 'nonbondedMethod' : nonbonded_method, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
         system = self.topfile.createSystem(**kwargs)
 
         # Fix particles with zero LJ sigma
@@ -341,14 +351,20 @@ class SimulatePermeation(object):
         """
         # TODO: For membrane protein simulations, we should add an anisotropic barostat
         has_barostat = False
-        for force in self.system.getForces():
+        for (index, force) in enumerate(self.system.getForces()):
             if force.__class__.__name__ in ['MonteCarloBarostat', 'MonteCarloAnisotropicBarostat']:
                 has_barostat = True
+                force_index = index
 
-        if not has_barostat:
-            print('Adding a barostat...')
-            barostat = openmm.MonteCarloBarostat(self.pressure, self.temperature)
-            self.system.addForce(barostat)
+        if self.pressure is not None:
+            if not has_barostat:
+                print('Adding a barostat...')
+                barostat = openmm.MonteCarloBarostat(self.pressure, self.temperature)
+                self.system.addForce(barostat)
+        else:
+            if has_barostat:
+                # Remove barostat
+                self.system.removeForce(force_index)
 
     def _restrain_protein(self, protein_atoms_to_restrain):
         """
@@ -465,6 +481,9 @@ def main():
                         help='OpenMM precision to use (default: None)')
     parser.add_argument('--ncontexts', dest='max_n_contexts', action='store', type=int, default=None,
                         help='Maximum number of contexts (default: None)')
+    parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
+                        help='Run a vacuum simulation with 50 steps/iteration for testing')
+
     args = parser.parse_args()
 
     # Check all required arguments have been provided
@@ -485,6 +504,12 @@ def main():
     # TODO: Check if output files exist first and resume if so?
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     simulation.n_iterations = args.n_iterations
+
+    if args.testmode:
+        simulation.pressure = None
+        simulation.n_steps_per_iteration = 50
+        simulation.timestep = 4.0 * unit.femtoseconds
+
     simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
