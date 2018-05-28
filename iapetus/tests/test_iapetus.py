@@ -48,6 +48,7 @@ def test_gromacs():
     simulation.n_iterations = 2
     simulation.n_steps_per_iteration = 5
     simulation.timestep = 2.0 * unit.femtoseconds
+    simulation.anneal_ligand = False
     simulation.run(platform_name='CPU')
     shutil.rmtree(tmp_dir)
 

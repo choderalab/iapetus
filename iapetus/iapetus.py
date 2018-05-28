@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 class SimulatePermeation(object):
     """
+
+    Properties
+    ----------
+    anneal_ligand : bool, optional, default=True
+        If True, will relax the ligand by alchemically annealing it first.
+        Recommended, but can be slow on CPUs.
+
     """
     def __init__(self, gromacs_input_path=None, ligand_resseq=None, output_filename=None, verbose=False):
         """Set up a SAMS permeation PMF simulation.
@@ -63,6 +70,7 @@ class SimulatePermeation(object):
         self.checkpoint_interval = 50
         self.gamma0 = 10.0
         self.flatness_threshold = 10.0
+        self.anneal_ligand = True
 
         # Check input
         if gromacs_input_path is None:
@@ -130,7 +138,8 @@ class SimulatePermeation(object):
         self.reference_thermodynamic_state = states.ThermodynamicState(system=self.system, temperature=self.temperature, pressure=self.pressure)
 
         # Anneal ligand into binding site
-        self._anneal_ligand()
+        if self.anneal_ligand:
+            self._anneal_ligand()
 
         # Create ThermodynamicStates for umbrella sampling along pore
         self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
@@ -579,6 +588,7 @@ def main():
 
     if args.testmode:
         simulation.pressure = None
+        simulation.anneal_ligand = False
 
     simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
