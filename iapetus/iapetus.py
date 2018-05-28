@@ -150,7 +150,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision=None, max_n_contexts=None):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None):
         """
         Run the sampler for a specified number of iterations
 
@@ -158,8 +158,8 @@ class SimulatePermeation(object):
         ----------
         platform_name : str, optional, default=None
             Name of platform, or 'fastest' if fastest platform should be automatically selected
-        precision : str, optional, default=None
-            Precision to use, or None to automatically select
+        precision : str, optional, default='auto'
+            Precision to use, or None to automatically select ('mixed' is used if supported)
         max_n_contexts : int, optional, default=None
             Maximum number of contexts to use
 
@@ -546,8 +546,8 @@ def main():
                         help='if set, will turn on verbose output (default: False)')
     parser.add_argument('--platform', dest='platform', action='store', default='fastest',
                         help='OpenMM platform to use, or "fastest" to auto-select fastest platform (default: fastest)')
-    parser.add_argument('--precision', dest='precision', action='store', default=None,
-                        help='OpenMM precision to use (default: None)')
+    parser.add_argument('--precision', dest='precision', action='store', default='auto',
+                        help='OpenMM precision to use (default: auto)')
     parser.add_argument('--ncontexts', dest='max_n_contexts', action='store', type=int, default=None,
                         help='Maximum number of contexts (default: None)')
     parser.add_argument('--n_steps_per_iteration', dest='n_steps_per_iteration', action='store', type=int, default=500,
