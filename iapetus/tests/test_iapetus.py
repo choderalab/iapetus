@@ -43,11 +43,11 @@ def test_gromacs():
     ligand_resseq = 423
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
-    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename)
-    simulation.n_iterations = 2
+    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=True)
     simulation.pressure = None
-    simulation.n_steps_per_iteration = 50
-    simulation.timestep = 4.0 * unit.femtoseconds
+    simulation.n_iterations = 2
+    simulation.n_steps_per_iteration = 5
+    simulation.timestep = 2.0 * unit.femtoseconds
     simulation.run(platform_name='CPU')
     shutil.rmtree(tmp_dir)
 
@@ -57,6 +57,6 @@ def test_cli():
     gromacs_input_path = get_data_filename('comp7_nowat/')
     tmp_dir = tempfile.mkdtemp()
     output_filename = os.path.join(tmp_dir, 'output.nc')
-    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU', '--ncontexts', '3', '--testmode']
+    sys.argv = ["prog", "--gromacs", gromacs_input_path, "--ligseq", "423", "--output", output_filename, "--niterations", "2", '--platform', 'CPU', '--ncontexts', '3', '--testmode', '--n_steps_per_iteration', '5']
     main()
     shutil.rmtree(tmp_dir)
