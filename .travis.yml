@@ -46,7 +46,7 @@ install:
 
 
 script:
-  - pytest -v --cov=iapetus iapetus/tests/
+  - pytest -v --capture=no --cov=iapetus iapetus/tests/
 
 notifications:
     email: false
