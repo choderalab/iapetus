@@ -12,6 +12,8 @@ import pathlib
 import logging
 import argparse
 
+import progressbar
+
 import mdtraj as md
 import numpy as np
 
@@ -59,6 +61,8 @@ class SimulatePermeation(object):
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
         self.checkpoint_interval = 50
+        self.gamma0 = 10.0
+        self.flatness_threshold = 10.0
 
         # Check input
         if gromacs_input_path is None:
@@ -107,10 +111,7 @@ class SimulatePermeation(object):
         self.beta = 1.0 / self.kT
 
         # Create the system
-        self._create_system()
-
-        # DEBUG: Alchemically soften ligand
-        self._alchemically_modify_ligand()
+        self.system = self._create_system()
 
         # Add a barostat
         # TODO: Is this necessary, sicne ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
@@ -128,23 +129,24 @@ class SimulatePermeation(object):
         # Create reference thermodynamic state
         self.reference_thermodynamic_state = states.ThermodynamicState(system=self.system, temperature=self.temperature, pressure=self.pressure)
 
-        # Minimize reference state
-        self.sampler_state = self._minimize_sampler_state(self.reference_thermodynamic_state, self.sampler_state)
+        # Anneal ligand into binding site
+        self._anneal_ligand()
 
         # Create ThermodynamicStates for umbrella sampling along pore
         self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
 
         # Minimize initial thermodynamic state
+        # TODO: Select initial thermodynamic state based on which state has minimum energy
         initial_state_index = 0
         self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
 
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
-        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None)
+        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None, gamma0=self.gamma0, flatness_threshold=self.flatness_threshold)
         self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval, analysis_particle_indices=self.analysis_particle_indices)
         self.simulation.create(thermodynamic_states=self.thermodynamic_states,
-                               unsampled_thermodynamic_states=[self.reference_thermodynamic_state, self.reference_thermodynamic_state],
+                               unsampled_thermodynamic_states=[self.reference_thermodynamic_state],
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
@@ -183,7 +185,7 @@ class SimulatePermeation(object):
         # Run the simulation
         self.simulation.run()
 
-    def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.5*unit.angstroms):
+    def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.25*unit.angstroms):
         """
         Create thermodynamic states for sampling along pore axis.
 
@@ -234,18 +236,21 @@ class SimulatePermeation(object):
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
         K_y = self.kT / (sigma_y**2) # spring constant
+        print('veritcal sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
         # TODO: Come up with a better way to define pore width?
-        sigma_xz = unit.sqrt( (axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2 )  # stddev of force-free fluctuations in xz-plane
+        scale_factor = 0.25
+        sigma_xz = scale_factor * unit.sqrt( (axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2 )  # stddev of force-free fluctuations in xz-plane
         K_xz = self.kT / (sigma_xz**2) # spring constant
+        print('in-plane sigma_xz = {:.3f} A'.format(sigma_xz / unit.angstroms))
 
         dr = axis_distance * (expansion_factor - 1.0)/2.0
         rmax = axis_distance + dr
         rmin = - dr
 
         # Create restraint state that encodes this axis
-        # TODO: Rework this as CustomCVForce so we can store it each iteration
+        # TODO: Rework this as CustomCVForce with in-plane and along-axis deviations as separate forces so we can store them each iteration
         print('Creating restraint...')
         from yank.restraints import RestraintState
         energy_expression = '(K_parallel/2)*(r_parallel-r0)^2 + (K_orthogonal/2)*r_orthogonal^2;'
@@ -270,8 +275,8 @@ class SimulatePermeation(object):
         self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
 
         # Create alchemical state
-        from openmmtools.alchemy import AlchemicalState
-        alchemical_state = AlchemicalState.from_system(self.reference_thermodynamic_state.system)
+        #from openmmtools.alchemy import AlchemicalState
+        #alchemical_state = AlchemicalState.from_system(self.reference_thermodynamic_state.system)
 
         # Create restraint state
         restraint_state = RestraintState(lambda_restraints=1.0)
@@ -280,10 +285,13 @@ class SimulatePermeation(object):
         # TODO: Should we include an unbiased state?
         initial_time = time.time()
         thermodynamic_states = list()
-        compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
+        #compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
+        compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[restraint_state])
         for lambda_restraints in np.linspace(0, 1, nstates):
             thermodynamic_state = copy.deepcopy(compound_state)
             thermodynamic_state.lambda_restraints = lambda_restraints
+            #thermodynamic_state.lambda_sterics = 1.0
+            #thermodynamic_state.lambda_electrostatics = 1.0
             thermodynamic_states.append(thermodynamic_state)
         elapsed_time = time.time() - initial_time
         print('Creating thermodynamic states took %.3f s' % elapsed_time)
@@ -317,9 +325,10 @@ class SimulatePermeation(object):
                         force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
 
         print('System has {} particles'.format(system.getNumParticles()))
-        self.system = system
 
-    def _alchemically_modify_ligand(self):
+        return system
+
+    def _alchemically_modify_ligand(self, reference_system):
         """
         Alchemically soften ligand.
         """
@@ -330,19 +339,65 @@ class SimulatePermeation(object):
         print('ligand heavy atoms: {}'.format(ligand_atoms))
 
         # Create alchemically-modified system
+        # TODO: Use exact PME if PME is selected
         from openmmtools.alchemy import AbsoluteAlchemicalFactory, AlchemicalRegion, AlchemicalState
-        factory = AbsoluteAlchemicalFactory(consistent_exceptions=False)
+        #factory = AbsoluteAlchemicalFactory(consistent_exceptions=False, alchemical_pme_treatment='exact')
+        factory = AbsoluteAlchemicalFactory(consistent_exceptions=False, disable_alchemical_dispersion_correction=True)
         alchemical_region = AlchemicalRegion(alchemical_atoms=ligand_atoms)
-        alchemical_system = factory.create_alchemical_system(self.system, alchemical_region)
+        alchemical_system = factory.create_alchemical_system(reference_system, alchemical_region)
 
         # Soften ligand
-        alchemical_state = AlchemicalState.from_system(alchemical_system)
-        alchemical_state.lambda_sterics = 0.5
-        alchemical_state.lambda_electrostatics = 0.0
-        alchemical_state.apply_to_system(alchemical_system)
+        #alchemical_state = AlchemicalState.from_system(alchemical_system)
+        #alchemical_state.lambda_sterics = 1.0
+        #alchemical_state.lambda_electrostatics = 1.0
+        #alchemical_state.apply_to_system(alchemical_system)
 
-        # Update system
-        self.system = alchemical_system
+        # Store alchemical system
+        return alchemical_system
+
+    def _anneal_ligand(self):
+        """Anneal ligand interactions to clean up clashes.
+
+        """
+        alchemical_system = self._alchemically_modify_ligand(self.system)
+
+        from openmmtools.alchemy import AlchemicalState
+        alchemical_state = AlchemicalState.from_system(alchemical_system)
+        thermodynamic_state = states.ThermodynamicState(system=alchemical_system, temperature=self.temperature, pressure=self.pressure)
+        alchemical_thermodynamic_state = states.CompoundThermodynamicState(thermodynamic_state=thermodynamic_state, composable_states=[alchemical_state])
+
+        # Initial softened minimization
+        print('Minimizing softened ligand...')
+        alchemical_thermodynamic_state.lambda_sterics = 0.01
+        alchemical_thermodynamic_state.lambda_electrostatics = 0.0
+        self.sampler_state = self._minimize_sampler_state(alchemical_thermodynamic_state, self.sampler_state)
+
+        # Anneal
+        n_annealing_steps = 1000
+        integrator = openmm.LangevinIntegrator(self.temperature, 90.0/unit.picoseconds, 1.0*unit.femtoseconds)
+        context, integrator = openmmtools.cache.global_context_cache.get_context(alchemical_thermodynamic_state, integrator)
+        self.sampler_state.apply_to_context(context)
+        print('Annealing sterics...')
+        for step in progressbar.progressbar(range(n_annealing_steps)):
+            alchemical_state.lambda_sterics = float(step) / float(n_annealing_steps)
+            alchemical_state.lambda_electrostatics = 0.0
+            alchemical_state.apply_to_context(context)
+            integrator.step(1)
+        print('Annealing electrostatics...')
+        for step in progressbar.progressbar(range(n_annealing_steps)):
+            alchemical_state.lambda_sterics = 1.0
+            alchemical_state.lambda_electrostatics = float(step) / float(n_annealing_steps)
+            alchemical_state.apply_to_context(context)
+            integrator.step(1)
+        self.sampler_state.update_from_context(context)
+
+        # Compute the final energy of the system for logging.
+        final_energy = thermodynamic_state.reduced_potential(context)
+        logger.debug('final alchemical energy {:8.3f}kT'.format(final_energy))
+
+        # Initial softened minimization
+        print('Minimizing real ligand...')
+        self.sampler_state = self._minimize_sampler_state(self.reference_thermodynamic_state, self.sampler_state)
 
     def _add_barostat(self):
         """Add a barostat to the system if one doesn't already exist.
@@ -416,11 +471,17 @@ class SimulatePermeation(object):
 
         # Use the FIRE minimizer
         from yank.fire import FIREMinimizationIntegrator
-        integrator = FIREMinimizationIntegrator(tolerance=tolerance)
+        reference_integrator = FIREMinimizationIntegrator(tolerance=tolerance)
 
         # Create context
         #context = thermodynamic_state.create_context(integrator)
-        context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state, integrator)
+        context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state, reference_integrator)
+
+        # DEBUG: Reset FIRE minimizer integrator
+        print('Resetting FIRE integrator...')
+        for index in range(reference_integrator.getNumGlobalVariables()):
+            value = reference_integrator.getGlobalVariable(index)
+            integrator.setGlobalVariable(index, value)
 
         # Set initial positions and box vectors.
         sampler_state.apply_to_context(context)
@@ -453,6 +514,16 @@ class SimulatePermeation(object):
         final_energy = thermodynamic_state.reduced_potential(context)
         logger.debug('final energy {:8.3f}kT'.format(final_energy))
 
+        if (final_energy >= initial_energy):
+            logger.debug('minimizing again since no progress was made...')
+            #sampler_state.apply_to_context(context)
+            initial_energy = final_energy
+            logger.debug('initial energy {:8.3f}kT'.format(initial_energy))
+            openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
+            final_energy = thermodynamic_state.reduced_potential(context)
+            logger.debug('final energy {:8.3f}kT'.format(final_energy))
+            sampler_state.update_from_context(context)
+
         # Clean up the integrator
         #del context, integrator
 
@@ -479,8 +550,10 @@ def main():
                         help='OpenMM precision to use (default: None)')
     parser.add_argument('--ncontexts', dest='max_n_contexts', action='store', type=int, default=None,
                         help='Maximum number of contexts (default: None)')
+    parser.add_argument('--n_steps_per_iteration', dest='n_steps_per_iteration', action='store', type=int, default=500,
+                        help='Number of timesteps per iteration (default: 500)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
-                        help='Run a vacuum simulation with 50 steps/iteration for testing')
+                        help='Run a vacuum simulation for testing')
 
     args = parser.parse_args()
 
@@ -502,11 +575,10 @@ def main():
     # TODO: Check if output files exist first and resume if so?
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     simulation.n_iterations = args.n_iterations
+    simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
     if args.testmode:
         simulation.pressure = None
-        simulation.n_steps_per_iteration = 50
-        simulation.timestep = 4.0 * unit.femtoseconds
 
     simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
