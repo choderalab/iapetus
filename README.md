@@ -37,7 +37,7 @@ cd iapetus
 ```bash
 conda install --yes conda-build
 conda build devtools/conda-recipe
-conda install --use-local iapetus-dev
+conda install --use-local iapetus
 ```
 
 ## Examples
