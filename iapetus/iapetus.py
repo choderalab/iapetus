@@ -479,18 +479,10 @@ class SimulatePermeation(object):
             tolerance = 1.0*unit.kilojoules_per_mole/unit.angstroms
 
         # Use the FIRE minimizer
-        from yank.fire import FIREMinimizationIntegrator
-        reference_integrator = FIREMinimizationIntegrator(tolerance=tolerance)
+        reference_integrator = openmm.VerletIntegrator(1.0*unit.femtoseconds)
 
         # Create context
-        #context = thermodynamic_state.create_context(integrator)
         context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state, reference_integrator)
-
-        # DEBUG: Reset FIRE minimizer integrator
-        print('Resetting FIRE integrator...')
-        for index in range(reference_integrator.getNumGlobalVariables()):
-            value = reference_integrator.getGlobalVariable(index)
-            integrator.setGlobalVariable(index, value)
 
         # Set initial positions and box vectors.
         sampler_state.apply_to_context(context)
@@ -500,21 +492,7 @@ class SimulatePermeation(object):
         logger.debug('initial energy {:8.3f}kT'.format(initial_energy))
 
         # Minimize energy.
-        try:
-            if max_iterations == 0:
-                logger.debug('Using FIRE: tolerance {} minimizing to convergence'.format(tolerance))
-                while integrator.getGlobalVariableByName('converged') < 1:
-                    integrator.step(50)
-            else:
-                logger.debug('Using FIRE: tolerance {} max_iterations {}'.format(tolerance, max_iterations))
-                integrator.step(max_iterations)
-        except Exception as e:
-            if str(e) == 'Particle coordinate is nan':
-                logger.debug('NaN encountered in FIRE minimizer; falling back to L-BFGS after resetting positions')
-                sampler_state.apply_to_context(context)
-                openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
-            else:
-                raise e
+        openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
 
         # Get the minimized positions.
         sampler_state.update_from_context(context)
@@ -522,21 +500,93 @@ class SimulatePermeation(object):
         # Compute the final energy of the system for logging.
         final_energy = thermodynamic_state.reduced_potential(context)
         logger.debug('final energy {:8.3f}kT'.format(final_energy))
-
-        if (final_energy >= initial_energy):
-            logger.debug('minimizing again since no progress was made...')
-            #sampler_state.apply_to_context(context)
-            initial_energy = final_energy
-            logger.debug('initial energy {:8.3f}kT'.format(initial_energy))
-            openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
-            final_energy = thermodynamic_state.reduced_potential(context)
-            logger.debug('final energy {:8.3f}kT'.format(final_energy))
-            sampler_state.update_from_context(context)
-
-        # Clean up the integrator
-        #del context, integrator
-
+    
         return sampler_state
+
+@staticmethod
+def _minimize_sampler_state_fire(thermodynamic_state, sampler_state, tolerance=None, max_iterations=100):
+    """Minimize the specified sampler state at the given thermodynamic state.
+
+    Parameters
+    ----------
+    thermodynamic_state : openmmtools.states.ThermodynamicState
+        The thermodynamic state for the simulation.
+    sampler_state : openmmtools.states.SamplerState
+        Initial sampler state
+    tolerance : unit.Quantity compatible with kilojoules_per_mole/nanometer, optional, default=1.0*unit.kilojoules_per_mole/unit.angstroms
+        Minimization will be terminated when RMS force reaches this tolerance
+    max_iterations : int, optional, default=100
+        Maximum number of iterations for minimization.
+        If 0, minimization continues until converged.
+
+    Returns
+    -------
+    minimized_sampler_state : openmmtools.states.SamplerState
+        Minimized sampler state
+
+    """
+    if tolerance is None:
+        tolerance = 1.0*unit.kilojoules_per_mole/unit.angstroms
+
+    # Use the FIRE minimizer
+    from yank.fire import FIREMinimizationIntegrator
+    reference_integrator = FIREMinimizationIntegrator(tolerance=tolerance)
+
+    # Create context
+    #context = thermodynamic_state.create_context(integrator)
+    context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state, reference_integrator)
+
+    # DEBUG: Reset FIRE minimizer integrator
+    print('Resetting FIRE integrator...')
+    for index in range(reference_integrator.getNumGlobalVariables()):
+        value = reference_integrator.getGlobalVariable(index)
+        integrator.setGlobalVariable(index, value)
+
+    # Set initial positions and box vectors.
+    sampler_state.apply_to_context(context)
+
+    # Compute the initial energy of the system for logging.
+    initial_energy = thermodynamic_state.reduced_potential(context)
+    logger.debug('initial energy {:8.3f}kT'.format(initial_energy))
+
+    # Minimize energy.
+    try:
+        if max_iterations == 0:
+            logger.debug('Using FIRE: tolerance {} minimizing to convergence'.format(tolerance))
+            while integrator.getGlobalVariableByName('converged') < 1:
+                integrator.step(50)
+        else:
+            logger.debug('Using FIRE: tolerance {} max_iterations {}'.format(tolerance, max_iterations))
+            integrator.step(max_iterations)
+    except Exception as e:
+        if str(e) == 'Particle coordinate is nan':
+            logger.debug('NaN encountered in FIRE minimizer; falling back to L-BFGS after resetting positions')
+            sampler_state.apply_to_context(context)
+            openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
+        else:
+            raise e
+
+    # Get the minimized positions.
+    sampler_state.update_from_context(context)
+
+    # Compute the final energy of the system for logging.
+    final_energy = thermodynamic_state.reduced_potential(context)
+    logger.debug('final energy {:8.3f}kT'.format(final_energy))
+
+    if (final_energy >= initial_energy):
+        logger.debug('minimizing again since no progress was made...')
+        #sampler_state.apply_to_context(context)
+        initial_energy = final_energy
+        logger.debug('initial energy {:8.3f}kT'.format(initial_energy))
+        openmm.LocalEnergyMinimizer.minimize(context, tolerance, max_iterations)
+        final_energy = thermodynamic_state.reduced_potential(context)
+        logger.debug('final energy {:8.3f}kT'.format(final_energy))
+        sampler_state.update_from_context(context)
+
+    # Clean up the integrator
+    #del context, integrator
+
+    return sampler_state
 
 def main():
     """Set up and run a porin permeation PMF calculation.
