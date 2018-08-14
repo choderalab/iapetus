@@ -64,7 +64,7 @@ class SimulatePermeation(object):
         self.temperature = 310.0 * unit.kelvin
         self.pressure = 1.0 * unit.atmospheres
         self.collision_rate = 1.0 / unit.picoseconds
-        self.timestep = 2.0 * unit.femtoseconds
+        self.timestep = 4.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
         self.checkpoint_interval = 50
@@ -151,6 +151,7 @@ class SimulatePermeation(object):
 
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
+        # TODO: Change this to LangevinSplittingDynamicsMove
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
         self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None, gamma0=self.gamma0, flatness_threshold=self.flatness_threshold)
         self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval, analysis_particle_indices=self.analysis_particle_indices)
@@ -245,7 +246,7 @@ class SimulatePermeation(object):
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
         K_y = self.kT / (sigma_y**2) # spring constant
-        print('veritcal sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
+        print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
         # TODO: Come up with a better way to define pore width?
@@ -549,8 +550,8 @@ def main():
                         help='ligand residue sequence id')
     parser.add_argument('--output', dest='output_filename', action='store', default='output.nc',
                         help='output netcdf filename (default: output.nc)')
-    parser.add_argument('--niterations', dest='n_iterations', action='store', type=int, default=10000,
-                        help='number of iterations to run (default: 10000)')
+    parser.add_argument('--niterations', dest='n_iterations', action='store', type=int, default=100000,
+                        help='number of iterations to run (default: 100000)')
     parser.add_argument('--verbose', dest='verbose', action='store_true', default=False,
                         help='if set, will turn on verbose output (default: False)')
     parser.add_argument('--platform', dest='platform', action='store', default='fastest',
@@ -559,8 +560,8 @@ def main():
                         help='OpenMM precision to use (default: auto)')
     parser.add_argument('--ncontexts', dest='max_n_contexts', action='store', type=int, default=None,
                         help='Maximum number of contexts (default: None)')
-    parser.add_argument('--n_steps_per_iteration', dest='n_steps_per_iteration', action='store', type=int, default=500,
-                        help='Number of timesteps per iteration (default: 500)')
+    parser.add_argument('--n_steps_per_iteration', dest='n_steps_per_iteration', action='store', type=int, default=1250,
+                        help='Number of timesteps per iteration (default: 1250)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
                         help='Run a vacuum simulation for testing')
 
@@ -580,17 +581,28 @@ def main():
     # Determine output filename
     output_filename = os.path.abspath(args.output_filename)
 
-    # Set up the calculation
-    # TODO: Check if output files exist first and resume if so?
-    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
-    simulation.n_iterations = args.n_iterations
-    simulation.n_steps_per_iteration = args.n_steps_per_iteration
+    if os.path.exists(output_filename):
+        # Resume the simulation
+        # TODO: Handle this within SimulatePermeation instead?
+        print('Storage {} exists; resuming...'.format(output_filename))
+        from yank.multistate import SAMSSampler, MultiStateReporter
+        sampler = SAMSSampler.from_storage(output_filename)
 
-    if args.testmode:
-        simulation.pressure = None
-        simulation.anneal_ligand = False
+        # Run the remainder of the simulation
+        sampler.run()
 
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+    else:
+        # Set up a new calculation
+        simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
+        simulation.n_iterations = args.n_iterations
+        simulation.n_steps_per_iteration = args.n_steps_per_iteration
+
+        if args.testmode:
+            simulation.pressure = None
+            simulation.anneal_ligand = False
+
+        # Run the simulation
+        simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
