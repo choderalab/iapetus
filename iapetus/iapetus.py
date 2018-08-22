@@ -591,10 +591,9 @@ def main():
     output_filename = os.path.abspath(args.output_filename)
 
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
-    if os.path.exists(output_filename):
-        resume = True
+    resume = os.path.exists(output_filename)
 
-    else:
+    if not resume:
         simulation.n_iterations = args.n_iterations
         simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
