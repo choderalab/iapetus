@@ -159,7 +159,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None,resume=False):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False):
         """
         Run the sampler for a specified number of iterations
 
@@ -190,9 +190,9 @@ class SimulatePermeation(object):
 
         if resume:
             # Resume the simulation
-            print('Storage {} exists; resuming...'.format(output_filename))
+            print('Storage {} exists; resuming...'.format(self.output_filename))
             from yank.multistate import SAMSSampler, MultiStateReporter
-            sampler = SAMSSampler.from_storage(output_filename)
+            sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
             sampler.run()
 
