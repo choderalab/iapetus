@@ -161,7 +161,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False, extend=None):
         """
         Run the sampler for a specified number of iterations
 
@@ -196,12 +196,10 @@ class SimulatePermeation(object):
             from yank.multistate import SAMSSampler, MultiStateReporter
             sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
-            if (self.n_extend is None):
+            if (extend is None):
                 sampler.run()
-            if (self.n_extend is 0):
-                raise ValueError('The number of iterations for extending the simulation is {}'.format(self.n_extend)
             else:
-                sampler.extend(n_iterations=self.n_extend)
+                sampler.extend(n_iterations=self.n_iterations)
 
 
         else:
@@ -581,8 +579,8 @@ def main():
                         help='Number of timesteps per iteration (default: 1250)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
                         help='Run a vacuum simulation for testing')
-    parser.add_argument('--n_extend', dest='n_extend', action='store', type=int,
-                        help='number of iterations to extend a simulation')
+    parser.add_argument('--extend', dest='extend', action='store_true', default=None,
+                        help='Extend a simulation')
 
 
     args = parser.parse_args()
@@ -603,7 +601,7 @@ def main():
 
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     resume = os.path.exists(output_filename)
-    simulation.n_extend = args.n_extend
+    extend = args.extend
     if not resume:
         simulation.n_iterations = args.n_iterations
         simulation.n_steps_per_iteration = args.n_steps_per_iteration
@@ -613,7 +611,7 @@ def main():
             simulation.anneal_ligand = False
 
     # Run the simulation
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, n_extend=n_extend)
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, extend=extend)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
