@@ -53,12 +53,12 @@ class SimulatePermeation(object):
             If True, print verbose output
 
         """
-        self._setup_complete = False
-
         # Setup general logging
         logging.root.setLevel(logging.DEBUG)
         logging.basicConfig(level=logging.DEBUG)
         yank.utils.config_root_logger(verbose=verbose, log_file_path=None)
+
+        self._setup_complete = False
 
         # Set default parameters
         self.temperature = 310.0 * unit.kelvin
@@ -98,7 +98,6 @@ class SimulatePermeation(object):
         self.analysis_particle_indices = self.mdtraj_topology.select('not water')
 
         # Store output filename
-        # TODO: Check if file already exists and resume if so
         self.output_filename = output_filename
 
         # Store ligand resseq
@@ -160,7 +159,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None,resume=False):
         """
         Run the sampler for a specified number of iterations
 
@@ -172,7 +171,8 @@ class SimulatePermeation(object):
             Precision to use, or None to automatically select ('mixed' is used if supported)
         max_n_contexts : int, optional, default=None
             Maximum number of contexts to use
-
+        resume : bool, default=False
+                    If True, resume simulation
         """
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
@@ -188,12 +188,21 @@ class SimulatePermeation(object):
         if max_n_contexts is not None:
             openmmtools.cache.global_context_cache.capacity = max_n_contexts
 
-        # Set up the simulation if it has not yet been set up
-        if not self._setup_complete:
-            self._setup()
+        if resume:
+            # Resume the simulation
+            print('Storage {} exists; resuming...'.format(output_filename))
+            from yank.multistate import SAMSSampler, MultiStateReporter
+            sampler = SAMSSampler.from_storage(output_filename)
+            # Run the remainder of the simulation
+            sampler.run()
 
-        # Run the simulation
-        self.simulation.run()
+        else:
+            # Set up the simulation if it has not yet been set up
+            if not self._setup_complete:
+                self._setup()
+
+                # Run the simulation
+                self.simulation.run()
 
     def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.25*unit.angstroms):
         """
@@ -581,19 +590,11 @@ def main():
     # Determine output filename
     output_filename = os.path.abspath(args.output_filename)
 
+    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     if os.path.exists(output_filename):
-        # Resume the simulation
-        # TODO: Handle this within SimulatePermeation instead?
-        print('Storage {} exists; resuming...'.format(output_filename))
-        from yank.multistate import SAMSSampler, MultiStateReporter
-        sampler = SAMSSampler.from_storage(output_filename)
-
-        # Run the remainder of the simulation
-        sampler.run()
+        resume = True
 
     else:
-        # Set up a new calculation
-        simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
         simulation.n_iterations = args.n_iterations
         simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
@@ -601,8 +602,8 @@ def main():
             simulation.pressure = None
             simulation.anneal_ligand = False
 
-        # Run the simulation
-        simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+    # Run the simulation
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
