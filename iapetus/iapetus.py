@@ -67,9 +67,7 @@ class SimulatePermeation(object):
         self.timestep = 4.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
-        self.n_extend = 0
         self.checkpoint_interval = 50
-        self.n_extend = 0
         self.gamma0 = 10.0
         self.flatness_threshold = 10.0
         self.anneal_ligand = True
@@ -161,7 +159,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False, extend=None):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False, extend=False):
         """
         Run the sampler for a specified number of iterations
 
@@ -175,6 +173,8 @@ class SimulatePermeation(object):
             Maximum number of contexts to use
         resume : bool, default=False
                     If True, resume simulation
+        extend : bool, default=False
+                    If True, extend simulation
         """
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
@@ -196,11 +196,10 @@ class SimulatePermeation(object):
             from yank.multistate import SAMSSampler, MultiStateReporter
             sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
-            if (extend is None):
-                sampler.run()
-            else:
+            if extend:
                 sampler.extend(n_iterations=self.n_iterations)
-
+            else:
+                sampler.run()
 
         else:
             # Set up the simulation if it has not yet been set up
@@ -579,8 +578,8 @@ def main():
                         help='Number of timesteps per iteration (default: 1250)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
                         help='Run a vacuum simulation for testing')
-    parser.add_argument('--extend', dest='extend', action='store_true', default=None,
-                        help='Extend a simulation')
+    parser.add_argument('--extend', dest='extend', action='store_true', default=False,
+                        help='Extend a simulation (default: False)')
 
 
     args = parser.parse_args()
@@ -601,7 +600,7 @@ def main():
 
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     resume = os.path.exists(output_filename)
-    extend = args.extend
+
     if not resume:
         simulation.n_iterations = args.n_iterations
         simulation.n_steps_per_iteration = args.n_steps_per_iteration
@@ -611,7 +610,7 @@ def main():
             simulation.anneal_ligand = False
 
     # Run the simulation
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, extend=extend)
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, extend=args.extend)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
