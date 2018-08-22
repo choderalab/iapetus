@@ -601,10 +601,10 @@ def main():
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     resume = os.path.exists(output_filename)
 
-    if not resume:
-        simulation.n_iterations = args.n_iterations
-        simulation.n_steps_per_iteration = args.n_steps_per_iteration
+    simulation.n_iterations = args.n_iterations
+    simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
+    if not resume:
         if args.testmode:
             simulation.pressure = None
             simulation.anneal_ligand = False
