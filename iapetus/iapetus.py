@@ -67,7 +67,9 @@ class SimulatePermeation(object):
         self.timestep = 4.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
+        self.n_extend = 0
         self.checkpoint_interval = 50
+        self.n_extend = 0
         self.gamma0 = 10.0
         self.flatness_threshold = 10.0
         self.anneal_ligand = True
@@ -194,7 +196,13 @@ class SimulatePermeation(object):
             from yank.multistate import SAMSSampler, MultiStateReporter
             sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
-            sampler.run()
+            if (self.n_extend is None):
+                sampler.run()
+            if (self.n_extend is 0):
+                raise ValueError('The number of iterations for extending the simulation is {}'.format(self.n_extend)
+            else:
+                sampler.extend(n_iterations=self.n_extend)
+
 
         else:
             # Set up the simulation if it has not yet been set up
@@ -573,6 +581,9 @@ def main():
                         help='Number of timesteps per iteration (default: 1250)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
                         help='Run a vacuum simulation for testing')
+    parser.add_argument('--n_extend', dest='n_extend', action='store', type=int,
+                        help='number of iterations to extend a simulation')
+
 
     args = parser.parse_args()
 
@@ -592,7 +603,7 @@ def main():
 
     simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     resume = os.path.exists(output_filename)
-
+    simulation.n_extend = args.n_extend
     if not resume:
         simulation.n_iterations = args.n_iterations
         simulation.n_steps_per_iteration = args.n_steps_per_iteration
@@ -602,7 +613,7 @@ def main():
             simulation.anneal_ligand = False
 
     # Run the simulation
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume)
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, n_extend=n_extend)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
