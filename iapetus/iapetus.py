@@ -250,7 +250,7 @@ class SimulatePermeation(object):
         print('axis_distance: {}'.format(axis_distance))
 
         # Compute spacing and spring constant
-        expansion_factor = 1.2
+        expansion_factor = 1.3 # Modified by Ana
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
@@ -264,9 +264,9 @@ class SimulatePermeation(object):
         K_xz = self.kT / (sigma_xz**2) # spring constant
         print('in-plane sigma_xz = {:.3f} A'.format(sigma_xz / unit.angstroms))
 
-        dr = axis_distance * (expansion_factor - 1.0)/2.0
+        dr = axis_distance * (expansion_factor - 1.0)/1.0 # Modified by Ana
         rmax = axis_distance + dr
-        rmin = - dr
+        rmin = -1.0 * axis_distance # Modified by Ana
 
         # Create restraint state that encodes this axis
         # TODO: Rework this as CustomCVForce with in-plane and along-axis deviations as separate forces so we can store them each iteration
