@@ -169,5 +169,5 @@ class PorinMembraneSystem(object):
         simulation = app.Simulation(self.structure.topology, system, integrator, platform)
         simulation.context.setPositions(self.structure.positions)
         simulation.minimizeEnergy(tolerance=0.1*unit.kilojoule/unit.mole, maxIterations=2000)
-        self.structure.positions = context.getState(getPositions=True).getPositions()
+        self.structure.positions = simulation.context.getState(getPositions=True).getPositions()
         del simulation.context, integrator
