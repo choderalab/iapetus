@@ -3,6 +3,7 @@ Test for the porinmembranesystem module.
 """
 
 # Import packages
+import os
 import iapetus
 import simtk.openmm as mm
 from simtk.openmm import unit
@@ -13,7 +14,7 @@ from simtk.openmm.app import PDBFile, ForceField
 def test_porinmembranesystem(capsys):
     """Test the addition of a ligand to a solvated porin"""
     # pdb file corresponding to a solvated lipid molecule
-    pdb = PDBFile('../data/solvated-porin.pdb')
+    pdb = PDBFile(os.path.join(os.path.dirname(__file__), '/data/solvated-porin.pdb'))
     modeller = app.Modeller(pdb.topology,pdb.positions)
     forcefield = ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
     platform = mm.Platform.getPlatformByName('CUDA')
