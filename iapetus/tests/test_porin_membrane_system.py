@@ -7,7 +7,7 @@ import iapetus
 import simtk.openmm as mm
 from simtk.openmm import unit
 import simtk.openmm.app as app
-from iapetus.porinmembranesystem import PorinMembraneSystem
+from iapetus.porin_membrane_system import PorinMembraneSystem
 from simtk.openmm.app import PDBFile, ForceField
 
 def test_porinmembranesystem(capsys):

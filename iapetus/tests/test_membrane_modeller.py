@@ -7,7 +7,7 @@ import iapetus
 import simtk.openmm as mm
 from simtk.openmm import unit
 import simtk.openmm.app as app
-from iapetus.membranemodeller import MembraneModeller
+from iapetus.membrane_modeller import MembraneModeller
 from simtk.openmm.app import PDBFile, ForceField
 
 def test_membranemodeller():
