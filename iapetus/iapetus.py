@@ -28,6 +28,9 @@ from openmmtools import integrators, states, mcmc
 
 logger = logging.getLogger(__name__)
 
+from iapetus.membrane_modeller import MembraneModeller
+from iapetus.porin_membrane_system import PorinMembraneSystem
+
 class SimulatePermeation(object):
     """
 
@@ -118,8 +121,28 @@ class SimulatePermeation(object):
         self.kT = kB * self.temperature
         self.beta = 1.0 / self.kT
 
+        if (gromacs):
         # Create the system
-        self.system = self._create_system()
+            self.system = self._create_system()
+
+        else:
+            pdb = PDBFile('../data/dppc/solvated-dppc.pdb')
+            modeller = MembraneModeller(pdb.topology,pdb.positions)
+            modeller.modify_topology()
+            forcefield = ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+            modeller.addHydrogens(forcefield=forcefield)
+
+            system = forcefield.createSystem(modeller.topology,
+                                             nonbondedMethod=app.PME,
+                                             rigidWater=True,
+                                             nonbondedCutoff=1*unit.nanometer)
+            integrator = mm.VerletIntegrator(0.5*unit.femtoseconds)
+            platform = mm.Platform.getPlatformByName('CUDA')
+            simulation = app.Simulation(modeller.topology, system, integrator, platform)
+            simulation.context.setPositions(modeller.positions)
+            simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
+            # Minimize the system after adding hydrogens
+            simulation.minimizeEnergy(maxIterations=0)
 
         # Add a barostat
         # TODO: Is this necessary, sicne ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
@@ -543,10 +566,15 @@ def main():
     """
 
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
-    parser.add_argument('--gromacs', dest='gromacs_input_path', action='store',
+    # Choose a better name
+    parser.add_argument('--data', dest='data', action='store',
+                        help='specify which data to use: "gromacs" or "MemProtMD" ')
+    parser.add_argument('--gromacs_input_path', dest='gromacs_input_path', action='store',
                         help='gromacs input path')
     parser.add_argument('--ligseq', dest='ligand_resseq', action='store',
                         help='ligand residue sequence id')
+    parser.add_argument('--mem_prot_md', dest='mem_prot_md', action='store_true', default=False,
+                        help='if set, use input file from MemProtMD database')
     parser.add_argument('--output', dest='output_filename', action='store', default='output.nc',
                         help='output netcdf filename (default: output.nc)')
     parser.add_argument('--niterations', dest='n_iterations', action='store', type=int, default=10000,
@@ -567,15 +595,22 @@ def main():
     args = parser.parse_args()
 
     # Check all required arguments have been provided
-    if (args.gromacs_input_path is None) or (args.ligand_resseq is None):
+    if (args.data is None):
         parser.print_help(sys.stderr)
         sys.exit(1)
 
+    if (args.data == 'gromacs'):
+        if (args.gromacs_input_path is None) or (args.ligand_resseq is None):
+            parser.print_help(sys.stderr)
+            sys.exit(1)
+
     # Determine ligand residue name
-    ligand_resseq = args.ligand_resseq
+    if (args.ligand_resseq is not None):
+        ligand_resseq = args.ligand_resseq
 
     # Determine the path to gromacs input
-    gromacs_input_path = os.path.abspath(args.gromacs_input_path)
+    if (args.gromacs_input_path is not None):
+        gromacs_input_path = os.path.abspath(args.gromacs_input_path)
 
     # Determine output filename
     output_filename = os.path.abspath(args.output_filename)
@@ -590,7 +625,7 @@ def main():
         simulation.pressure = None
         simulation.anneal_ligand = False
 
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+#    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
