@@ -13,7 +13,7 @@ from simtk.openmm.app import PDBFile, ForceField
 def test_membrane_modeller():
     """Test the addition of hydrogens to a solvated DPPC molecule"""
     # pdb file corresponding to a solvated lipid molecule
-    pdb = PDBFile('../data/dppc/solvated-dppc.pdb')
+    pdb = PDBFile(os.path.join(os.path.dirname(__file__), '../data/dppc/solvated-dppc.pdb'))
     modeller = MembraneModeller(pdb.topology,pdb.positions)
     modeller.modify_topology()
     forcefield = ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
