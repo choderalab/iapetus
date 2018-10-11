@@ -159,7 +159,7 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False, extend=False):
+    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False):
         """
         Run the sampler for a specified number of iterations
 
@@ -172,9 +172,8 @@ class SimulatePermeation(object):
         max_n_contexts : int, optional, default=None
             Maximum number of contexts to use
         resume : bool, default=False
-                    If True, resume simulation
-        extend : bool, default=False
-                    If True, extend simulation
+                    If True, resume the simulation
+
         """
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
@@ -196,10 +195,12 @@ class SimulatePermeation(object):
             from yank.multistate import SAMSSampler, MultiStateReporter
             sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
-            if extend:
-                sampler.extend(n_iterations=self.n_iterations)
-            else:
+            if sampler._iteration < self.n_iterations:
+                # Resume
                 sampler.run()
+            else:
+                # Extend
+                sampler.extend(n_iterations=self.n_iterations)
 
         else:
             # Set up the simulation if it has not yet been set up
@@ -255,7 +256,7 @@ class SimulatePermeation(object):
         print('axis_distance: {}'.format(axis_distance))
 
         # Compute spacing and spring constant
-        expansion_factor = 1.3 # Modified by Ana
+        expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
@@ -269,9 +270,9 @@ class SimulatePermeation(object):
         K_xz = self.kT / (sigma_xz**2) # spring constant
         print('in-plane sigma_xz = {:.3f} A'.format(sigma_xz / unit.angstroms))
 
-        dr = axis_distance * (expansion_factor - 1.0)/1.0 # Modified by Ana
+        dr = axis_distance * (expansion_factor - 1.0)/1.0
         rmax = axis_distance + dr
-        rmin = -1.0 * axis_distance # Modified by Ana
+        rmin = -1.0 * axis_distance
 
         # Create restraint state that encodes this axis
         # TODO: Rework this as CustomCVForce with in-plane and along-axis deviations as separate forces so we can store them each iteration
@@ -578,9 +579,6 @@ def main():
                         help='Number of timesteps per iteration (default: 1250)')
     parser.add_argument('--testmode', dest='testmode', action='store_true', default=False,
                         help='Run a vacuum simulation for testing')
-    parser.add_argument('--extend', dest='extend', action='store_true', default=False,
-                        help='Extend a simulation (default: False)')
-
 
     args = parser.parse_args()
 
@@ -610,7 +608,7 @@ def main():
             simulation.anneal_ligand = False
 
     # Run the simulation
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume, extend=args.extend)
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
