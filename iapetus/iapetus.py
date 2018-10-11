@@ -41,7 +41,7 @@ class SimulatePermeation(object):
         Recommended, but can be slow on CPUs.
 
     """
-    def __init__(self, gromacs_input_path=None, ligand_resseq=None, output_filename=None, verbose=False):
+    def __init__(self, data=None, gromacs_input_path=None, ligand_resseq=None, output_filename=None, verbose=False):
         """Set up a SAMS permeation PMF simulation.
 
         Parameters
@@ -75,30 +75,42 @@ class SimulatePermeation(object):
         self.flatness_threshold = 10.0
         self.anneal_ligand = True
 
+        self.gromacs = self.mem_prot_md = False
+        if (data == 'gromacs'):
+            self.gromacs = True
+            # Check input
+            if gromacs_input_path is None:
+                raise ValueError('gromacs_input_path must be specified')
+            if ligand_resseq is None:
+                raise ValueError('ligand_resseq must be specified')
+
+        else:
+            self.mem_prot_md = True
         # Check input
-        if gromacs_input_path is None:
-            raise ValueError('gromacs_input_path must be specified')
-        if ligand_resseq is None:
-            raise ValueError('ligand_resseq must be specified')
         if output_filename is None:
             raise ValueError('output_filename must be specified')
 
         # Discover contents of the input path by suffix
-        contents = { pathlib.Path(filename).suffix : filename for filename in os.listdir(gromacs_input_path) }
-        gro_filename = os.path.join(gromacs_input_path, contents['.gro'])
-        top_filename = os.path.join(gromacs_input_path, contents['.top'])
-        pdb_filename = os.path.join(gromacs_input_path, contents['.pdb'])
+        if (self.gromacs):
+            contents = { pathlib.Path(filename).suffix : filename for filename in os.listdir(gromacs_input_path) }
+            gro_filename = os.path.join(gromacs_input_path, contents['.gro'])
+            top_filename = os.path.join(gromacs_input_path, contents['.top'])
+            pdb_filename = os.path.join(gromacs_input_path, contents['.pdb'])
 
-        # Load system files
-        print('Reading system from path: {}'.format(gromacs_input_path))
-        self.grofile = app.GromacsGroFile(gro_filename)
-        self.topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
-        self.pdbfile = app.PDBFile(pdb_filename)
+            # Load system files
+            print('Reading system from path: {}'.format(gromacs_input_path))
+            self.grofile = app.GromacsGroFile(gro_filename)
+            self.topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
+            self.pdbfile = app.PDBFile(pdb_filename)
 
+        if (self.mem_prot_md):
+            contents = { pathlib.Path(filename).suffix : filename for filename in os.listdir(data) }
+            pdb_filename = os.path.join(data, contents['.pdb'])
+            self.pdbfile = app.PDBFile(pdb_filename)
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicing
-        self.mdtraj_refpdb = md.load(pdb_filename)
-        self.mdtraj_topology = self.mdtraj_refpdb.topology
-        self.analysis_particle_indices = self.mdtraj_topology.select('not water')
+        #self.mdtraj_refpdb = md.load(pdb_filename)
+        #self.mdtraj_topology = self.mdtraj_refpdb.topology
+        #self.analysis_particle_indices = self.mdtraj_topology.select('not water')
 
         # Store output filename
         # TODO: Check if file already exists and resume if so
@@ -121,15 +133,15 @@ class SimulatePermeation(object):
         self.kT = kB * self.temperature
         self.beta = 1.0 / self.kT
 
-        if (gromacs):
+        if (self.gromacs):
         # Create the system
             self.system = self._create_system()
 
-        else:
-            pdb = PDBFile('../data/dppc/solvated-dppc.pdb')
-            modeller = MembraneModeller(pdb.topology,pdb.positions)
+        if (self.mem_prot_md):
+
+            modeller = MembraneModeller(self.pdbfile.topology,self.pdbfile.positions)
             modeller.modify_topology()
-            forcefield = ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+            forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
             modeller.addHydrogens(forcefield=forcefield)
 
             system = forcefield.createSystem(modeller.topology,
@@ -569,9 +581,9 @@ def main():
     # Choose a better name
     parser.add_argument('--data', dest='data', action='store',
                         help='specify which data to use: "gromacs" or "MemProtMD" ')
-    parser.add_argument('--gromacs_input_path', dest='gromacs_input_path', action='store',
+    parser.add_argument('--gromacs_input_path', dest='gromacs_input_path', action='store', default=None,
                         help='gromacs input path')
-    parser.add_argument('--ligseq', dest='ligand_resseq', action='store',
+    parser.add_argument('--ligseq', dest='ligand_resseq', action='store', default=None,
                         help='ligand residue sequence id')
     parser.add_argument('--mem_prot_md', dest='mem_prot_md', action='store_true', default=False,
                         help='if set, use input file from MemProtMD database')
@@ -593,16 +605,12 @@ def main():
                         help='Run a vacuum simulation for testing')
 
     args = parser.parse_args()
+    gromacs = mem_prot_md = False
 
     # Check all required arguments have been provided
     if (args.data is None):
         parser.print_help(sys.stderr)
         sys.exit(1)
-
-    if (args.data == 'gromacs'):
-        if (args.gromacs_input_path is None) or (args.ligand_resseq is None):
-            parser.print_help(sys.stderr)
-            sys.exit(1)
 
     # Determine ligand residue name
     if (args.ligand_resseq is not None):
@@ -617,7 +625,7 @@ def main():
 
     # Set up the calculation
     # TODO: Check if output files exist first and resume if so?
-    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
+    simulation = SimulatePermeation(data=args.data, gromacs_input_path=args.gromacs_input_path, ligand_resseq=args.ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     simulation.n_iterations = args.n_iterations
     simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
@@ -625,7 +633,7 @@ def main():
         simulation.pressure = None
         simulation.anneal_ligand = False
 
-#    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
