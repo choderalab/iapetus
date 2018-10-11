@@ -1,5 +1,5 @@
 """
-Test for the membranemodeller module.
+Test for the membrane_modeller module.
 """
 
 # Import packages
@@ -10,7 +10,7 @@ import simtk.openmm.app as app
 from iapetus.membrane_modeller import MembraneModeller
 from simtk.openmm.app import PDBFile, ForceField
 
-def test_membranemodeller():
+def test_membrane_modeller():
     """Test the addition of hydrogens to a solvated DPPC molecule"""
     # pdb file corresponding to a solvated lipid molecule
     pdb = PDBFile('../data/dppc/solvated-dppc.pdb')
