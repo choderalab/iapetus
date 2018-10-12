@@ -137,24 +137,8 @@ class SimulatePermeation(object):
         # Create the system
             self.system = self._create_system()
 
-        if (self.mem_prot_md):
 
-            modeller = MembraneModeller(self.pdbfile.topology,self.pdbfile.positions)
-            modeller.modify_topology()
-            forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
-            modeller.addHydrogens(forcefield=forcefield)
 
-            system = forcefield.createSystem(modeller.topology,
-                                             nonbondedMethod=app.PME,
-                                             rigidWater=True,
-                                             nonbondedCutoff=1*unit.nanometer)
-            integrator = mm.VerletIntegrator(0.5*unit.femtoseconds)
-            platform = mm.Platform.getPlatformByName('CUDA')
-            simulation = app.Simulation(modeller.topology, system, integrator, platform)
-            simulation.context.setPositions(modeller.positions)
-            simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
-            # Minimize the system after adding hydrogens
-            simulation.minimizeEnergy(maxIterations=0)
 
         # Add a barostat
         # TODO: Is this necessary, sicne ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
@@ -573,6 +557,44 @@ class SimulatePermeation(object):
 
         return sampler_state
 
+class SetUp(object):
+    """
+
+    """
+    def __init__(self, data=None):
+
+
+
+class SetUpGromacs(.SetUp):
+    """
+
+    """
+    def __init__(self, data=None):
+
+
+class SetUpMemProtMd(.SetUp):
+    """
+
+    """
+    def __init__(self, data=None):
+            modeller = MembraneModeller(self.pdbfile.topology,self.pdbfile.positions)
+            modeller.modify_topology()
+            forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+            modeller.addHydrogens(forcefield=forcefield)
+
+            system = forcefield.createSystem(modeller.topology,
+                                            nonbondedMethod=app.PME,
+                                            rigidWater=True,
+                                            nonbondedCutoff=1*unit.nanometer)
+            integrator = mm.VerletIntegrator(0.5*unit.femtoseconds)
+            platform = mm.Platform.getPlatformByName('CUDA')
+            simulation = app.Simulation(modeller.topology, system, integrator, platform)
+            simulation.context.setPositions(modeller.positions)
+            simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
+            # Minimize the system after adding hydrogens
+            simulation.minimizeEnergy(maxIterations=0)
+
+
 def main():
     """Set up and run a porin permeation PMF calculation.
     """
@@ -580,7 +602,7 @@ def main():
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
     # Choose a better name
     parser.add_argument('--data', dest='data', action='store',
-                        help='specify which data to use: "gromacs" or "MemProtMD" ')
+                        help='specify which data to use: "gromacs" or "MemProtMD"')
     parser.add_argument('--gromacs_input_path', dest='gromacs_input_path', action='store', default=None,
                         help='gromacs input path')
     parser.add_argument('--ligseq', dest='ligand_resseq', action='store', default=None,
@@ -611,10 +633,6 @@ def main():
     if (args.data is None):
         parser.print_help(sys.stderr)
         sys.exit(1)
-
-    # Determine ligand residue name
-    if (args.ligand_resseq is not None):
-        ligand_resseq = args.ligand_resseq
 
     # Determine the path to gromacs input
     if (args.gromacs_input_path is not None):
