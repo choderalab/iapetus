@@ -670,7 +670,7 @@ class PlatformSettings(object):
         if max_n_contexts is not None:
             openmmtools.cache.global_context_cache.capacity = max_n_contexts
 
-class LoggerSettings(objetc):
+class LoggerSettings(object):
 
     def __init__(self, verbose=False):
         # Setup general logging
