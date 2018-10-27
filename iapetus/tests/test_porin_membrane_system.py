@@ -24,10 +24,10 @@ def test_porin_membrane_system():
                                      nonbondedMethod=app.PME,
                                      rigidWater=False,
                                      nonbondedCutoff=1*unit.nanometer)
-    ligand_system = PorinMembraneSystem('comp7', system_md, modeller.topology, modeller.positions, platform, max_iterations=200)
+    ligand_system = PorinMembraneSystem('comp7', system_md, modeller.topology, modeller.positions, platform, tolerance=1*unit.kilojoule/unit.mole, max_iterations=200)
     integrator = mm.LangevinIntegrator(300*unit.kelvin, 1.0/unit.picoseconds, 2*unit.femtosecond)
     simulation = app.Simulation(ligand_system.structure.topology, ligand_system.system, integrator, platform)
     simulation.context.setPositions(ligand_system.structure.positions)
     state = simulation.context.getState(getEnergy=True)
     pe = state.getPotentialEnergy()._value
-    assert -300000.0 <= pe <= -200000.0
+    assert pe < 0.0
