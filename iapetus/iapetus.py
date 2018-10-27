@@ -495,7 +495,7 @@ class SimulatePermeation(object):
         return sampler_state
 
 
-class SetUpSystem(object):
+class IapetusSystem(object):
 
     """
 
@@ -544,19 +544,20 @@ class SetUpSystem(object):
             # We are simulating in solvent
             nonbonded_method = app.PME
         kwargs = { 'nonbondedMethod' : nonbonded_method, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
-        return self._system(kwargs)
+        return self._fix_particle_sigmas(self._system(kwargs))
 
-    def fix_particle_sigmas(self):
+
+    def _fix_particle_sigmas(self, system):
         # Fix particles with zero LJ sigma
-        for force in self.system.getForces():
+        for force in system.getForces():
             if force.__class__.__name__ == 'NonbondedForce':
-                for index in range(self.system.getNumParticles()):
+                for index in range(system.getNumParticles()):
                     [charge, sigma, epsilon] = force.getParticleParameters(index)
                     if sigma / unit.nanometers == 0.0:
                         force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
-        return self
+        return system
 
-class GromacsSystem(SetUpSystem):
+class GromacsSystem(IapetusSystem):
 
     def __init__(self, input_data, ligand_name, ligand_resseq=None, membrane=None):
         # Check input
@@ -589,7 +590,7 @@ class GromacsSystem(SetUpSystem):
         return self.topfile.createSystem(**kwargs)
 
 
-class MemProtMdSystem(SetUpSystem):
+class MemProtMdSystem(IapetusSystem):
 
     """
 
@@ -744,7 +745,6 @@ def main():
 
     if not resume:
         openmm_system = system.create_system(pressure=simulation.pressure)
-        openmm_system.fix_particle_sigmas()
         print('System has {} particles'.format(openmm_system.getNumParticles()))
 
     simulation.n_iterations = args.n_iterations
