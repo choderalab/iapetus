@@ -144,7 +144,7 @@ class PorinMembraneSystem(object):
 
         return new_structure
 
-    def _minimize_energy(self, atoms_to_freeze, platform, max_iterations):
+    def _minimize_energy(self, atoms_to_freeze, platform, tolerance, max_iterations):
         """
         Use the OpenMM minimizeEnergy method in a system with the
         ligand-porin-membrane atoms frezeed. Only the water molecules and ions
@@ -156,6 +156,8 @@ class PorinMembraneSystem(object):
             List of atoms that won't move during minimization
         platform : object
             Platform used by OpenMM
+        tolerance : unit.Quantity compatible with kilojoules_per_mole/nanometer, optional, default=1.0*unit.kilojoules_per_mole/unit.angstroms
+            Minimization will be terminated when RMS force reaches this tolerance
         max_iterations : int, optional, default=2000
             Maximum number of iterations for minimization.
                 If 0, minimization continues until converged.
