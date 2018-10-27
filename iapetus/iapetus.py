@@ -500,10 +500,10 @@ class IapetusSystem(object):
     """
 
     """
-    def __init__(self, input_data, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
 
         """
-        input_data : str
+        source : str
             The database
         ligand_name : str
             The name of the ligand (comp7, ...)
@@ -512,7 +512,7 @@ class IapetusSystem(object):
 
         """
 
-        self.input_data = input_data
+        self.source = source
         self.ligand_name = ligand_name
         self.topology = None
         self.positions = None
@@ -559,13 +559,13 @@ class IapetusSystem(object):
 
 class GromacsSystem(IapetusSystem):
 
-    def __init__(self, input_data, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
         # Check input
         if ligand_resseq is None:
             raise ValueError('ligand_resseq must be specified')
         # Discover contents of the input path by suffix
         self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(self.ligand_name)}
-        super().__init__(input_data, ligand_name, ligand_resseq)
+        super().__init__(source, ligand_name, ligand_resseq)
 
     def _get_pdb(self):
         pdb_filename = os.path.join(self.ligand_name, self.contents['.pdb'])
@@ -595,14 +595,14 @@ class MemProtMdSystem(IapetusSystem):
     """
 
     """
-    def __init__(self, input_data, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
         # Discover contents of the input path by suffix
         self.membrane = membrane
-        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(input_data)}
-        super().__init__(input_data, ligand_name, ligand_resseq, membrane)
+        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(source)}
+        super().__init__(source, ligand_name, ligand_resseq, membrane)
 
     def _get_pdb(self):
-        pdb_filename = os.path.join(self.input_data, self.contents['.pdb'])
+        pdb_filename = os.path.join(self.source, self.contents['.pdb'])
         return app.PDBFile(pdb_filename)
 
     def get_positions(self, platform=None):
@@ -685,7 +685,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
     # Choose a better name
-    parser.add_argument('--input_data', dest='input_data', action='store',
+    parser.add_argument('--source', dest='source', action='store',
                         help='specify which type of input data to use: "Gromacs" or "MemProtMD"')
     parser.add_argument('--ligand_name', dest='ligand_name', action='store',
                         help='the name of the ligand')
@@ -714,7 +714,7 @@ def main():
     gromacs = mem_prot_md = False
 
     # Check all required arguments have been provided
-    if (args.input_data is None):
+    if (args.source is None):
         parser.print_help(sys.stderr)
         sys.exit(1)
 
@@ -727,17 +727,17 @@ def main():
 
     resume = os.path.exists(output_filename)
 
-    conf = PlatformSettings(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+    platform_settings = PlatformSettings(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
     LoggerSettings(verbose=args.verbose)
     # Set up the system
-    if args.input_data == 'gromacs':
-        system = GromacsSystem(args.input_data, args.ligand_name, ligand_resseq=args.ligand_resseq, membrane=None)
+    if args.source == 'gromacs':
+        system = GromacsSystem(args.source, args.ligand_name, ligand_resseq=args.ligand_resseq, membrane=None)
     else:
         # TODO generalize this
         membrane = 'DPPC'
-        system = MemProtMdSystem(args.input_data, args.ligand_name, ligand_resseq=None, membrane=membrane)
+        system = MemProtMdSystem(args.source, args.ligand_name, ligand_resseq=None, membrane=membrane)
 
-    positions = system.get_positions(platform=conf.platform)
+    positions = system.get_positions(platform=platform_settings.platform)
     topology = system.get_topology()
 
     # Set up the calculation
