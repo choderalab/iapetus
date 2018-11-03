@@ -76,7 +76,7 @@ class SimulatePermeation(object):
         if output_filename is None:
             raise ValueError('output_filename must be specified')
 
-        self.ligand_resseq =
+        self.ligand_resseq = ligand_resseq
 
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicings
         topo = md.Topology.from_openmm(topology)
