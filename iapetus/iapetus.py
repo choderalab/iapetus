@@ -69,14 +69,14 @@ class SimulatePermeation(object):
         self.n_iterations = 10000
         self.checkpoint_interval = 50
         self.gamma0 = 10.0
-        self.flatness_threshold = 10.0
+        self.flatness_threshold = 0.2
         self.anneal_ligand = True
 
         # Check input
         if output_filename is None:
             raise ValueError('output_filename must be specified')
 
-        # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicingss
+        # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicings
         topo = md.Topology.from_openmm(topology)
 
         if membrane is not None:
@@ -122,8 +122,8 @@ class SimulatePermeation(object):
         self.reference_thermodynamic_state = states.ThermodynamicState(system=self.system, temperature=self.temperature, pressure=self.pressure)
 
         # Anneal ligand into binding site
-        #if self.anneal_ligand:
-        #    self._anneal_ligand()
+        if self.anneal_ligand:
+            self._anneal_ligand()
 
         # Create ThermodynamicStates for umbrella sampling along pore
         self._auto_create_thermodynamic_states(structure, topology, self.reference_thermodynamic_state)
@@ -134,7 +134,7 @@ class SimulatePermeation(object):
         self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
 
         # Set up simulation
-        #from yank.multistate import SAMSSampler, MultiStateReporter
+        from yank.multistate import SAMSSampler, MultiStateReporter
         # TODO: Change this to LangevinSplittingDynamicsMove
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
         self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None, gamma0=self.gamma0, flatness_threshold=self.flatness_threshold)
@@ -189,7 +189,7 @@ class SimulatePermeation(object):
         print(cylinder.vmdCommands(), file=open('vmd_commands.txt', 'w'))
         bottom_atoms, top_atoms = cylinder.atomsInExtremes(data.coordinates,n=5)
         cylinder.writeExtremesCoords(data.coordinates, bottom_atoms, top_atoms, open('extremes.xyz', 'w'))
-        axis_distance = cylinder.height
+        axis_distance = cylinder.height*unit.angstroms
 
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
@@ -199,8 +199,12 @@ class SimulatePermeation(object):
         print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
-        K_xz = K_y
+        scale_factor = 0.25
+        sigma_xz = scale_factor * cylinder.r*unit.angstroms # stddev of force-free fluctuations in xz-plane
+        K_xz = self.kT / (sigma_xz**2)  # spring constant
 
+        K_max = K_y
+        K_min = K_xz
         dr = axis_distance * (expansion_factor - 1.0)/2.0
         rmax = axis_distance + dr
         rmin = - dr
@@ -209,53 +213,45 @@ class SimulatePermeation(object):
         print('Creating restraint...')
         from yank.restraints import RestraintState
 
-        energy_axis = '(K_parallel/2)*(r_parallel-r0)^2;'
-        energy_axis += 'r_parallel = r*cos(theta);'
-        energy_axis += 'r = distance(g1,g2);'
-        energy_axis += 'theta = angle(g1,g2,g3);'
-        energy_axis += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        # Collective variable definitions
+        common = 'r = distance(g1,g2);'
+        common += 'theta = angle(g1,g2,g3);'
+        r_parallel = openmm.CustomCentroidBondForce(3, 'r*cos(theta);' + common)
+        r_orthogonal = openmm.CustomCentroidBondForce(3, 'r*sin(theta);' + common)
 
-        energy_ortogonal = '(K_orthogonal/2)*S*r_orthogonal^2;'
-        energy_ortogonal += 'r_orthogonal = r*sin(theta);'
-        energy_ortogonal += 'r = distance(g1,g2);'
-        energy_ortogonal += 'theta = angle(g1,g2,g3);'
+        for cv in [r_parallel, r_orthogonal]:
+            cv.addGroup([int(index) for index in ligand_atoms])
+            cv.addGroup([int(index) for index in bottom_atoms])
+            cv.addGroup([int(index) for index in top_atoms])
 
-        energy_ortogonal += 'S = 1 - step(z_ext-z)*(1 + u^3*(15*u - 6*u^2 - 10));'
-        energy_ortogonal += 'u = step(z-z_int)*(z - z_int)/(z_ext - z_int);'
-        energy_ortogonal += 'z = abs(r0-z_c);'
-        energy_ortogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        energy_parallel = '(K_parallel/2)*(r_parallel-r0)^2;'
+        energy_parallel += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        cvforce_parallel = openmm.CustomCVForce(energy_parallel)
+        cvforce_parallel.addCollectiveVariable('r_parallel', r_parallel)
 
-        cvforce_axis = openmm.CustomCVForce(energy_axis)
-        cvforce_ortogonal = openmm.CustomCVForce(energy_ortogonal)
+        energy_orthogonal = '(1/2)*(Kmin + S*(Kmax - Kmin))*(r_orthogonal^2);'
+        energy_orthogonal += 'S = 1 - step(z_ext-z)*(1 + u^3*(15*u - 6*u^2 - 10));'
+        energy_orthogonal += 'u = step(z-z_int)*(z - z_int)/(z_ext - z_int);'
+        energy_orthogonal += 'z = abs(r0-z_c);'
+        energy_orthogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
+        cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
 
-        force_axis = openmm.CustomCentroidBondForce(3, energy_axis)
-        force_ortogonal = openmm.CustomCentroidBondForce(3, energy_ortogonal)
+        for force in [cvforce_parallel, cvforce_orthogonal]:
+            force.addGlobalParameter('rmax', rmax)
+            force.addGlobalParameter('rmin', rmin)
+            force.addGlobalParameter('lambda_restraints', 1.0)
 
-        cvforce_axis.addGlobalParameter('lambda_restraints', 1.0)
-        cvforce_axis.addGlobalParameter('K_parallel', K_y)
-        cvforce_axis.addGlobalParameter('rmax', rmax)
-        cvforce_axis.addGlobalParameter('rmin', rmin)
+        cvforce_parallel.addGlobalParameter('K_parallel', K_y)
 
-        cvforce_ortogonal.addGlobalParameter('K_orthogonal', K_xz)
+        cvforce_ortogonal.addGlobalParameter('K_min', K_max )
+        cvforce_ortogonal.addGlobalParameter('K_max', K_min )
         cvforce_ortogonal.addGlobalParameter('z_c', axis_distance/2.0)
-        cvforce_ortogonal.addGlobalParameter('z_int', 0.75*(axis_distance/2.0))
-        cvforce_ortogonal.addGlobalParameter('z_ext', 1.5*(axis_distance/2.0))
+        cvforce_ortogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
+        cvforce_ortogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
 
-        cvforce_axis.addCollectiveVariable('r_parallel', force_axis)
-        cvforce_ortogonal.addCollectiveVariable('r_orthogonal', force_ortogonal )
-
-        force_axis.addGroup([int(index) for index in ligand_atoms])
-        force_axis.addGroup([int(index) for index in bottom_atoms])
-        force_axis.addGroup([int(index) for index in top_atoms])
-        force_axis.addBond([0,1,2], [])
-
-        force_ortogonal.addGroup([int(index) for index in ligand_atoms])
-        force_ortogonal.addGroup([int(index) for index in bottom_atoms])
-        force_ortogonal.addGroup([int(index) for index in top_atoms])
-        force_ortogonal.addBond([0,1,2], [])
-
-        self.system.addForce(cvforce_axis)
-        self.system.addForce(cvforce_ortogonal)
+        self.system.addForce(cvforce_parallel)
+        self.system.addForce(cvforce_orthogonal)
         # Update reference thermodynamic state
         print('Updating system in reference thermodynamic state...')
         self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
