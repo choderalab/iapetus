@@ -90,7 +90,7 @@ class SimulatePermeation(object):
         self.output_filename = output_filename
 
 
-    def _setup(self, structure, topology):
+    def _setup(self, structure, topology, positions, box):
         """
         Set up calculation.
 
