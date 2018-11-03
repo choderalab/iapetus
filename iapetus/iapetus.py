@@ -78,6 +78,7 @@ class SimulatePermeation(object):
 
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicings
         topo = md.Topology.from_openmm(topology)
+        self.mdtraj_topology = topo
 
         if membrane is not None:
             self.analysis_particle_indices = topo.select('not water and not resname ' + membrane)
