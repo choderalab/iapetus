@@ -43,7 +43,7 @@ class SimulatePermeation(object):
         Recommended, but can be slow on CPUs.
 
     """
-    def __init__(self, topology, membrane=None, output_filename=None):
+    def __init__(self, topology, ligand_resseq=None, membrane=None, output_filename=None):
 
         """Set up a SAMS permeation PMF simulation.
 
@@ -75,6 +75,8 @@ class SimulatePermeation(object):
         # Check input
         if output_filename is None:
             raise ValueError('output_filename must be specified')
+
+        self.ligand_resseq =
 
         # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicings
         topo = md.Topology.from_openmm(topology)
@@ -863,7 +865,7 @@ def main():
     box =  system.get_box()
 
     # Set up the calculation
-    simulation = SimulatePermeation(topology, membrane=membrane, output_filename=output_filename)
+    simulation = SimulatePermeation(topology, ligand_resseq=args.ligand_resseq, membrane=membrane, output_filename=output_filename)
 
     if not resume:
         openmm_system = system.create_system(pressure=simulation.pressure)
