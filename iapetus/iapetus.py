@@ -194,6 +194,11 @@ class SimulatePermeation(object):
         cylinder.writeExtremesCoords(data.coordinates, bottom_atoms, top_atoms, open('extremes.xyz', 'w'))
         axis_distance = cylinder.height*unit.angstroms
 
+        selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
+        print('Determining ligand atoms using "{}"...'.format(selection))
+        ligand_atoms = self.mdtraj_topology.select(selection)
+
+
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
