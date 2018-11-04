@@ -252,8 +252,8 @@ class SimulatePermeation(object):
 
         cvforce_parallel.addGlobalParameter('K_parallel', K_y)
 
-        cvforce_orthogonal.addGlobalParameter('K_min', K_max )
-        cvforce_orthogonal.addGlobalParameter('K_max', K_min )
+        cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
+        cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
         cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
         cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
         cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
