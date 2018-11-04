@@ -129,7 +129,7 @@ class SimulatePermeation(object):
             self._anneal_ligand()
 
         # Create ThermodynamicStates for umbrella sampling along pore
-        self._auto_create_thermodynamic_states(structure, topology, self.reference_thermodynamic_state)
+        self.thermodynamic_states = self._auto_create_thermodynamic_states(structure, topology, self.reference_thermodynamic_state)
 
         # Minimize initial thermodynamic state
         # TODO: Select initial thermodynamic state based on which state has minimum energy
