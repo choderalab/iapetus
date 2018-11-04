@@ -181,7 +181,7 @@ class SimulatePermeation(object):
                 # Run the simulation
                 self.simulation.run()
 
-    def _auto_create_thermodynamic_states(self, structure, topology, spacing=0.25*unit.angstroms):
+    def _auto_create_thermodynamic_states(self, structure, topology,  reference_thermodynamic_state, spacing=0.25*unit.angstroms):
         """
         Create thermodynamic states for sampling along pore axis.
         """
