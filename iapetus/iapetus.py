@@ -211,8 +211,8 @@ class SimulatePermeation(object):
         sigma_xz = scale_factor * cylinder.r*unit.angstroms # stddev of force-free fluctuations in xz-plane
         K_xz = self.kT / (sigma_xz**2)  # spring constant
 
-        K_max = K_y
-        K_min = K_xz
+        Kmax = K_y
+        Kmin = K_xz
         dr = axis_distance * (expansion_factor - 1.0)/2.0
         rmax = axis_distance + dr
         rmin = - dr
