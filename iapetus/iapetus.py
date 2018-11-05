@@ -68,9 +68,9 @@ class SimulatePermeation(object):
         self.n_steps_per_iteration = 1250
         self.n_iterations = 10000
         self.checkpoint_interval = 50
-        self.gamma0 = 10.0
-        self.flatness_threshold = 0.2
-        self.anneal_ligand = True
+        self.gamma0 = 1000.0
+        self.flatness_threshold = 10.0
+        self.anneal_ligand = False
 
         # Check input
         if output_filename is None:
@@ -193,17 +193,17 @@ class SimulatePermeation(object):
         bottom_atoms, top_atoms = cylinder.atomsInExtremes(data.coordinates,n=5)
         cylinder.writeExtremesCoords(data.coordinates, bottom_atoms, top_atoms, open('extremes.xyz', 'w'))
         axis_distance = cylinder.height*unit.angstroms
-
-        selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
-        print('Determining ligand atoms using "{}"...'.format(selection))
-        ligand_atoms = self.mdtraj_topology.select(selection)
-
+        # TODO fix this
+        #selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
+        #print('Determining ligand atoms using "{}"...'.format(selection))
+        ligand_atoms = self.mdtraj_topology.select('resname ' + self.ligand)
 
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
         sigma_y = axis_distance / float(nstates)  # stddev of force-free fluctuations in y-axis
         K_y = self.kT / (sigma_y**2)  # spring constant
+
         print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
@@ -242,24 +242,24 @@ class SimulatePermeation(object):
         energy_orthogonal += 'u = step(z-z_int)*(z - z_int)/(z_ext - z_int);'
         energy_orthogonal += 'z = abs(r0-z_c);'
         energy_orthogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
-        cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
-        cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
-
-        for force in [cvforce_parallel, cvforce_orthogonal]:
+        #cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
+        #cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
+        #for force in [cvforce_parallel, cvforce_orthogonal]:
+        for force in [cvforce_parallel]:
             force.addGlobalParameter('rmax', rmax)
             force.addGlobalParameter('rmin', rmin)
             force.addGlobalParameter('lambda_restraints', 1.0)
 
         cvforce_parallel.addGlobalParameter('K_parallel', K_y)
 
-        cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
-        cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
-        cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
-        cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
-        cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
+        #cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
+        #cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
+        #cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
+        #cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
+        #cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
 
         self.system.addForce(cvforce_parallel)
-        self.system.addForce(cvforce_orthogonal)
+        #self.system.addForce(cvforce_orthogonal)
         # Update reference thermodynamic state
         print('Updating system in reference thermodynamic state...')
         self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
@@ -671,6 +671,8 @@ class IapetusSystem(object):
                     if sigma / unit.nanometers == 0.0:
                         force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
         return system
+    def get_ligand_resseq(self):
+        pass
 
 class GromacsSystem(IapetusSystem):
 
@@ -705,6 +707,9 @@ class GromacsSystem(IapetusSystem):
         top_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.top'])
         topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
         return topfile.createSystem(**kwargs)
+
+    def get_ligand_resseq(self):
+        pass
 
 
 class MemProtMdSystem(IapetusSystem):
@@ -770,6 +775,9 @@ class MemProtMdSystem(IapetusSystem):
 
     def _system(self, kwargs):
         return self.ligand_system.system
+
+    def get_ligand_resseq(self):
+        return self.ligand_system.ligand
 
 class PlatformSettings(object):
 
@@ -868,9 +876,10 @@ def main():
     positions = system.get_positions(platform=platform_settings.platform)
     topology = system.get_topology()
     box =  system.get_box()
+    ligand_resseq = system.get_ligand_resseq()
 
     # Set up the calculation
-    simulation = SimulatePermeation(topology, ligand_resseq=args.ligand_resseq, membrane=membrane, output_filename=output_filename)
+    simulation = SimulatePermeation(topology, ligand_resseq=ligand_resseq, membrane=membrane, output_filename=output_filename)
 
     if not resume:
         openmm_system = system.create_system(pressure=simulation.pressure)
