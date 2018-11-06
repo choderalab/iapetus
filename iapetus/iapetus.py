@@ -70,7 +70,7 @@ class SimulatePermeation(object):
         self.checkpoint_interval = 50
         self.gamma0 = 1000.0
         self.flatness_threshold = 10.0
-        self.anneal_ligand = False
+        self.anneal_ligand = True
 
         # Check input
         if output_filename is None:
@@ -199,7 +199,7 @@ class SimulatePermeation(object):
             top_atoms.append(data.index[atom])
         print('BOTTOM AND TOP ATOMS ARE')
         print(bottom_atoms, top_atoms)
-        cylinder.writeExtremesCoords(data.coordinates, bottom_atoms, top_atoms, open('extremes.xyz', 'w'))
+        cylinder.writeExtremesCoords(data.coordinates, b_atoms, t_atoms, open('extremes.xyz', 'w'))
         axis_distance = cylinder.height*unit.angstroms
         # TODO fix this
         selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
