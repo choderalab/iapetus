@@ -3,7 +3,7 @@
 This module extracts the coordinates to be used in the cylinder fitting.
 
 """
-
+import sys
 import numpy as np
 import mdtraj as md
 import parmed as pmd
@@ -40,8 +40,7 @@ class DataPoints(object):
 
         return np.asarray(coordinates)
 
-    def writeCoordinates(self, file):
-        xyz = open(file,'w')
-        xyz.write("{}\n\n".format(self.coordinates.shape[0]))
+    def writeCoordinates(self, file=sys.stdout):
+        print("{}\n".format(self.coordinates.shape[0]), file=file)
         for row in self.coordinates:
-            xyz.write("C {} {} {}\n".format(row[0], row[1], row[2]) )
+            print("C {} {} {}".format(row[0], row[1], row[2]), file=file)
