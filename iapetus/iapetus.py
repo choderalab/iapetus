@@ -190,13 +190,22 @@ class SimulatePermeation(object):
         data.writeCoordinates(open('cylinder.xyz', 'w'))
         cylinder = CylinderFitting(data.coordinates)
         print(cylinder.vmdCommands(), file=open('vmd_commands.txt', 'w'))
-        bottom_atoms, top_atoms = cylinder.atomsInExtremes(data.coordinates,n=5)
+        b_atoms, t_atoms = cylinder.atomsInExtremes(data.coordinates,n=5)
+        bottom_atoms = []
+        top_atoms = []
+        for atom in b_atoms:
+            bottom_atoms.append(data.index[atom])
+        for atom in t_atoms:
+            top_atoms.append(data.index[atom])
+        print('BOTTOM AND TOP ATOMS ARE')
+        print(bottom_atoms, top_atoms)
         cylinder.writeExtremesCoords(data.coordinates, bottom_atoms, top_atoms, open('extremes.xyz', 'w'))
         axis_distance = cylinder.height*unit.angstroms
         # TODO fix this
-        #selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
-        #print('Determining ligand atoms using "{}"...'.format(selection))
-        ligand_atoms = self.mdtraj_topology.select('resname ' + self.ligand)
+        selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
+        print('Determining ligand atoms using "{}"...'.format(selection))
+        ligand_atoms = self.mdtraj_topology.select(selection)
+        #ligand_atoms = self.mdtraj_topology.select('resname ' + self.ligand)
 
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
@@ -876,10 +885,10 @@ def main():
     positions = system.get_positions(platform=platform_settings.platform)
     topology = system.get_topology()
     box =  system.get_box()
-    ligand_resseq = system.get_ligand_resseq()
+    #ligand_resseq = system.get_ligand_resseq()
 
     # Set up the calculation
-    simulation = SimulatePermeation(topology, ligand_resseq=ligand_resseq, membrane=membrane, output_filename=output_filename)
+    simulation = SimulatePermeation(topology, ligand_resseq=args.ligand_resseq, membrane=membrane, output_filename=output_filename)
 
     if not resume:
         openmm_system = system.create_system(pressure=simulation.pressure)

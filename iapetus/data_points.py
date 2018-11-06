@@ -3,7 +3,7 @@
 This module extracts the coordinates to be used in the cylinder fitting.
 
 """
-import sys
+
 import numpy as np
 import mdtraj as md
 import parmed as pmd
@@ -14,6 +14,7 @@ class DataPoints(object):
     def __init__(self, structure, topology):
 
         self.structure = structure
+        #self.indices = topology.select('(protein and not resname DPP)')
         self.indices = topology.select('protein')
         self.sliced_top = topology.subset(self.indices)
         self.coordinates = self._points()
@@ -27,16 +28,20 @@ class DataPoints(object):
         secondary = geometry.compute_dssp(traj, simplified=False)
         strands = list(filter(lambda i: secondary[0,i] == 'E',range(secondary.shape[1])))
         coordinates = []
+        self.index = []
         for s in strands:
             for res in self.structure.residues:
                 if res.idx == s:
                     for item in res.atoms:
                         if item.name == 'CA':
                             coordinates.append(coords[item.idx,:])
+                            self.index.append(item.idx)
+
 
         return np.asarray(coordinates)
 
-    def writeCoordinates(self, file=sys.stdout):
-        print("{}\n".format(self.coordinates.shape[0]), file=file)
+    def writeCoordinates(self, file):
+        xyz = open(file,'w')
+        xyz.write("{}\n\n".format(self.coordinates.shape[0]))
         for row in self.coordinates:
-            print("C {} {} {}".format(row[0], row[1], row[2]), file=file)
+            xyz.write("C {} {} {}\n".format(row[0], row[1], row[2]) )
