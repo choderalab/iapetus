@@ -225,7 +225,10 @@ class SimulatePermeation(object):
         dr = axis_distance * (expansion_factor - 1.0)/2.0
         rmax = axis_distance + dr
         rmin = - dr
-
+        print('rmax is...')
+        print(rmax)
+        print('rmin is...')
+        print(rmin)
         # Create restraint state that encodes this axis
         print('Creating restraint...')
         from yank.restraints import RestraintState
@@ -240,6 +243,7 @@ class SimulatePermeation(object):
             cv.addGroup([int(index) for index in ligand_atoms])
             cv.addGroup([int(index) for index in bottom_atoms])
             cv.addGroup([int(index) for index in top_atoms])
+            cv.addBond([0,1,2], [])    
 
         energy_parallel = '(K_parallel/2)*(r_parallel-r0)^2;'
         energy_parallel += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
@@ -251,24 +255,23 @@ class SimulatePermeation(object):
         energy_orthogonal += 'u = step(z-z_int)*(z - z_int)/(z_ext - z_int);'
         energy_orthogonal += 'z = abs(r0-z_c);'
         energy_orthogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
-        #cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
-        #cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
-        #for force in [cvforce_parallel, cvforce_orthogonal]:
-        for force in [cvforce_parallel]:
+        cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
+        cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
+        for force in [cvforce_parallel, cvforce_orthogonal]:
             force.addGlobalParameter('rmax', rmax)
             force.addGlobalParameter('rmin', rmin)
             force.addGlobalParameter('lambda_restraints', 1.0)
 
         cvforce_parallel.addGlobalParameter('K_parallel', K_y)
 
-        #cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
-        #cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
-        #cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
-        #cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
-        #cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
+        cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
+        cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
+        cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
+        cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
+        cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
 
         self.system.addForce(cvforce_parallel)
-        #self.system.addForce(cvforce_orthogonal)
+        self.system.addForce(cvforce_orthogonal)
         # Update reference thermodynamic state
         print('Updating system in reference thermodynamic state...')
         self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
@@ -294,6 +297,7 @@ class SimulatePermeation(object):
             thermodynamic_states.append(thermodynamic_state)
         elapsed_time = time.time() - initial_time
         print('Creating thermodynamic states took %.3f s' % elapsed_time)
+        print(thermodynamic_states)
 
         return thermodynamic_states
 
