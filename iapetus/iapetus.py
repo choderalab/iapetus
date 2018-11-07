@@ -140,7 +140,7 @@ class SimulatePermeation(object):
         from yank.multistate import SAMSSampler, MultiStateReporter
         # TODO: Change this to LangevinSplittingDynamicsMove
         move = mcmc.LangevinDynamicsMove(timestep=self.timestep, collision_rate=self.collision_rate, n_steps=self.n_steps_per_iteration, reassign_velocities=False)
-        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=self.n_iterations, online_analysis_interval=None, gamma0=self.gamma0, flatness_threshold=self.flatness_threshold)
+        self.simulation = SAMSSampler(mcmc_moves=move, number_of_iterations=50, online_analysis_interval=None, gamma0=self.gamma0, flatness_threshold=self.flatness_threshold)
         self.reporter = MultiStateReporter(self.output_filename, checkpoint_interval=self.checkpoint_interval, analysis_particle_indices=self.analysis_particle_indices)
         self.simulation.create(thermodynamic_states=self.thermodynamic_states,
                                unsampled_thermodynamic_states=[self.reference_thermodynamic_state],
@@ -180,6 +180,15 @@ class SimulatePermeation(object):
 
                 # Run the simulation
                 self.simulation.run()
+                for i in range(1000/50):
+                    self.simulation.extend(n_iterations=50)
+                    index = self.reporter.read_replica_thermodynamic_states()
+                    print(index)
+                    system = self.thermodynamic_states[index]
+                    thermodynamic_state = states.ThermodynamicState(system=system, temperature=self.temperature, pressure=self.pressure)
+                    context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
+                    print(cvforce_parallel.getCollectiveVariableValues(context))
+
 
     def _auto_create_thermodynamic_states(self, structure, topology,  reference_thermodynamic_state, spacing=0.25*unit.angstroms):
         """
@@ -243,7 +252,7 @@ class SimulatePermeation(object):
             cv.addGroup([int(index) for index in ligand_atoms])
             cv.addGroup([int(index) for index in bottom_atoms])
             cv.addGroup([int(index) for index in top_atoms])
-            cv.addBond([0,1,2], [])    
+            cv.addBond([0,1,2], [])
 
         energy_parallel = '(K_parallel/2)*(r_parallel-r0)^2;'
         energy_parallel += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
@@ -297,7 +306,6 @@ class SimulatePermeation(object):
             thermodynamic_states.append(thermodynamic_state)
         elapsed_time = time.time() - initial_time
         print('Creating thermodynamic states took %.3f s' % elapsed_time)
-        print(thermodynamic_states)
 
         return thermodynamic_states
 
