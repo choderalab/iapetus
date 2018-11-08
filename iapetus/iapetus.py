@@ -147,7 +147,8 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, system, structure, topology, positions, box, resume=False):
+    #def run(self, system, structure, topology, positions, box, resume=False):
+    def run(self, positions, box, resume=False):
         """
         Run the sampler for a specified number of iterations
 
@@ -157,7 +158,7 @@ class SimulatePermeation(object):
                     If True, resume the simulation
 
         """
-        self.system = system
+        #self.system = system
         self.positions = positions
         self.box = box
         if resume:
@@ -172,6 +173,15 @@ class SimulatePermeation(object):
             else:
                 # Extend
                 sampler.extend(n_iterations=self.n_iterations)
+                for i in range(2):
+                    sampler.extend(n_iterations=50)
+                    print(sampler.sampler_states[0].collective_variables)
+                    print('###################################################'))
+                    index = sampler._reporter.read_replica_thermodynamic_states()
+                    for i in index:
+                        thermodynamic_state = self._replica_thermodynamic_states[i[-1]]
+                    context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
+                    print(self.cvforce_parallel.getCollectiveVariableValues(context))
 
         else:
             # Set up the simulation if it has not yet been set up
@@ -184,12 +194,13 @@ class SimulatePermeation(object):
                     self.simulation.extend(n_iterations=50)
                     print(self.simulation.sampler_states[0].collective_variables)
                     print('###################################################'))
-                    print(self.simulation.sampler_states[0])
+                    print(self.simulation.sampler_states[0].)
                     print('###################################################'))
                     index = self.reporter.read_replica_thermodynamic_states()
-                    thermodynamic_state = self.thermodynamic_states[index]
+                    for i in index:
+                        thermodynamic_state = self.thermodynamic_states[i[-1]]
                     context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
-                    print(cvforce_parallel.getCollectiveVariableValues(context))
+                    print(self.cvforce_parallel.getCollectiveVariableValues(context))
 
 
     def _auto_create_thermodynamic_states(self, structure, topology,  reference_thermodynamic_state, spacing=0.25*unit.angstroms):
@@ -258,8 +269,8 @@ class SimulatePermeation(object):
 
         energy_parallel = '(K_parallel/2)*(r_parallel-r0)^2;'
         energy_parallel += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
-        cvforce_parallel = openmm.CustomCVForce(energy_parallel)
-        cvforce_parallel.addCollectiveVariable('r_parallel', r_parallel)
+        self.cvforce_parallel = openmm.CustomCVForce(energy_parallel)
+        self.cvforce_parallel.addCollectiveVariable('r_parallel', r_parallel)
 
         energy_orthogonal = '(1/2)*(Kmin + S*(Kmax - Kmin))*(r_orthogonal^2);'
         energy_orthogonal += 'S = 1 - step(z_ext-z)*(1 + u^3*(15*u - 6*u^2 - 10));'
@@ -268,12 +279,12 @@ class SimulatePermeation(object):
         energy_orthogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
         cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
         cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
-        for force in [cvforce_parallel, cvforce_orthogonal]:
+        for force in [self.cvforce_parallel, cvforce_orthogonal]:
             force.addGlobalParameter('rmax', rmax)
             force.addGlobalParameter('rmin', rmin)
             force.addGlobalParameter('lambda_restraints', 1.0)
 
-        cvforce_parallel.addGlobalParameter('K_parallel', K_y)
+        self.cvforce_parallel.addGlobalParameter('K_parallel', K_y)
 
         cvforce_orthogonal.addGlobalParameter('Kmin', Kmax )
         cvforce_orthogonal.addGlobalParameter('Kmax', Kmin )
@@ -281,7 +292,7 @@ class SimulatePermeation(object):
         cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
         cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
 
-        self.system.addForce(cvforce_parallel)
+        self.system.addForce(self.cvforce_parallel)
         self.system.addForce(cvforce_orthogonal)
         # Update reference thermodynamic state
         print('Updating system in reference thermodynamic state...')
@@ -916,9 +927,10 @@ def main():
             simulation.pressure = None
             simulation.anneal_ligand = False
 
-    structure = pmd.openmm.load_topology(topology, system=openmm_system, xyz=positions)
+    #structure = pmd.openmm.load_topology(topology, system=openmm_system, xyz=positions)
     # Run the simulation
-    simulation.run(openmm_system, structure, topology, positions, box, resume=resume)
+    #simulation.run(openmm_system, structure, topology, positions, box, resume=resume)
+    simulation.run(positions, box, resume=resume)
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
