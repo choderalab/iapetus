@@ -180,15 +180,16 @@ class SimulatePermeation(object):
 
                 # Run the simulation
                 self.simulation.run()
-                for i in range(20):
+                for i in range(2):
                     self.simulation.extend(n_iterations=50)
                     print(self.simulation.sampler_states[0].collective_variables)
-                    #sampler_state.collective_variables
-
-                    #index = self.reporter.read_replica_thermodynamic_states()
-                    #thermodynamic_state = self.thermodynamic_states[index]
-                    #context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
-                    #cvforce_parallel.getCollectiveVariableValues(context)
+                    print('###################################################'))
+                    print(self.simulation.sampler_states[0])
+                    print('###################################################'))
+                    index = self.reporter.read_replica_thermodynamic_states()
+                    thermodynamic_state = self.thermodynamic_states[index]
+                    context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
+                    print(cvforce_parallel.getCollectiveVariableValues(context))
 
 
     def _auto_create_thermodynamic_states(self, structure, topology,  reference_thermodynamic_state, spacing=0.25*unit.angstroms):
