@@ -178,8 +178,8 @@ class SimulatePermeation(object):
                     print(sampler.sampler_states[0].collective_variables)
                     print('###################################################'))
                     index = sampler._reporter.read_replica_thermodynamic_states()
-                    for i in index:
-                        thermodynamic_state = self._replica_thermodynamic_states[i[-1]]
+                    #for i in index:
+                    thermodynamic_state = sampler._replica_thermodynamic_states[0]
                     context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
                     print(self.cvforce_parallel.getCollectiveVariableValues(context))
 
@@ -194,11 +194,9 @@ class SimulatePermeation(object):
                     self.simulation.extend(n_iterations=50)
                     print(self.simulation.sampler_states[0].collective_variables)
                     print('###################################################'))
-                    print(self.simulation.sampler_states[0].)
                     print('###################################################'))
                     index = self.reporter.read_replica_thermodynamic_states()
-                    for i in index:
-                        thermodynamic_state = self.thermodynamic_states[i[-1]]
+                    thermodynamic_state = self.thermodynamic_states[index[-1][0]]
                     context, integrator = openmmtools.cache.global_context_cache.get_context(thermodynamic_state)
                     print(self.cvforce_parallel.getCollectiveVariableValues(context))
 
@@ -705,6 +703,7 @@ class IapetusSystem(object):
                     if sigma / unit.nanometers == 0.0:
                         force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
         return system
+
     def get_ligand_resseq(self):
         pass
 
