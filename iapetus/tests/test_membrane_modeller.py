@@ -3,6 +3,7 @@ Test for the membrane_modeller module.
 """
 
 # Import packages
+import os
 import iapetus
 import simtk.openmm as mm
 from simtk.openmm import unit
@@ -34,4 +35,4 @@ def test_membrane_modeller():
     simulation.step(1000)
     state = simulation.context.getState(getEnergy=True)
     pe = state.getPotentialEnergy()._value
-    assert -30000.0 <= pe <= -20000.0
+    assert pe < 0.0

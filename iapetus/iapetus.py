@@ -57,14 +57,13 @@ class SimulatePermeation(object):
             NetCDF output filename
 
         """
-
         self._setup_complete = False
 
         # Set default parameters
         self.temperature = 310.0 * unit.kelvin
         self.pressure = 1.0 * unit.atmospheres
         self.collision_rate = 1.0 / unit.picoseconds
-        self.timestep = 2.0 * unit.femtoseconds
+        self.timestep = 4.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
         self.n_iterations = 60000
         self.checkpoint_interval = 50
@@ -143,6 +142,7 @@ class SimulatePermeation(object):
                                unsampled_thermodynamic_states=[self.reference_thermodynamic_state],
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
+
 
     def run(self, system, topology, positions, box, resume=False):
 
@@ -355,8 +355,10 @@ class SimulatePermeation(object):
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
+
         sigma_y = axis_distance / float(nstates)  # stddev of force-free fluctuations in y-axis
         K_y = self.kT / (sigma_y**2)  # spring constant
+
         print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
@@ -900,6 +902,7 @@ def main():
         openmm_system = system.create_system(pressure=simulation.pressure)
         print('System has {} particles'.format(openmm_system.getNumParticles()))
 
+
     simulation.n_iterations = args.n_iterations
     simulation.n_steps_per_iteration = args.n_steps_per_iteration
 
@@ -907,8 +910,12 @@ def main():
         if args.testmode:
             simulation.pressure = None
 
+
     # Run the simulation
     simulation.run(openmm_system, topology, positions, box, resume=resume)
+
+
+  
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
