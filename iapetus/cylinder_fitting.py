@@ -23,21 +23,33 @@ class CylinderFitting(object):
 
         cov_matrix = np.cov(np.asarray(xyz).transpose())
         w, v = np.linalg.eig(cov_matrix)
-        eigen = v[:,np.where(w == max(w))]
-        eigen.resize(3,1)
-        phi = np.arcsin(eigen[2,0])
-        theta = np.arcsin(np.cos(phi))
+        deviation =[[] for i in range(w.shape[0])]
+        dev = np.Inf
+        for e in range(w.shape[0]):
+            eigen = v[:,np.where(w == w[e])]
+            eigen.resize(3,1)
+            phi_ = np.arcsin(eigen[2,0])
+            theta_ = np.arcsin(np.cos(phi_))
+            self.center = center = xyz.mean(axis=0)
+            self.W = np.array([np.cos(theta_)*np.cos(phi_),
+                            np.sin(theta_)*np.cos(phi_),
+                            np.sin(phi_)]) # W is the cylinder axis
+            R = ((np.linalg.norm((self._project(xyz)),axis=1)).mean())**2
+            for i in range(xyz.shape[0]):
+                deviation[e].append((np.linalg.norm(self._project(xyz)[i,:])**2 - R))
+            if sum(deviation[e]) < dev:
+                dev = sum(deviation[e])
+                phi = phi_
+                theta = theta_
 
-        self.center = center = xyz.mean(axis=0)
         self.W = np.array([np.cos(theta)*np.cos(phi),
-                           np.sin(theta)*np.cos(phi),
-                           np.sin(phi)]) # W is the axis cylinder
+                        np.sin(theta)*np.cos(phi),
+                        np.sin(phi)])
 
         params = [self.center[0], self.center[1], theta, phi,
                  ((np.linalg.norm((self._project(xyz)),axis=1)).mean())**2] # params[4] = radius
 
-        estParams = least_squares(self._cylinderFitting, params, args=(xyz,), f_scale=0.1, verbose=2)
-        print(estParams.x)
+        estParams = least_squares(self._cylinderFitting, params, args=(xyz,), f_scale=0.1)
         self.center[0:2] = estParams.x[0:2]
         theta, phi = tuple(estParams.x[2:4])
 

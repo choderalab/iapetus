@@ -8,22 +8,22 @@ import numpy as np
 import mdtraj as md
 import parmed as pmd
 from mdtraj import geometry
+from simtk import unit
 
 class DataPoints(object):
 
     def __init__(self, structure, topology):
 
         self.structure = structure
-        #self.indices = topology.select('(protein and not resname DPP)')
         self.indices = topology.select('protein')
         self.sliced_top = topology.subset(self.indices)
         self.coordinates = self._points()
 
     def _points(self):
 
-        coords = self.structure.get_coordinates(frame=0)[self.indices,:]
+        coords = self.structure.get_coordinates(frame=0)[self.indices,:]*unit.angstroms
         xyz = np.zeros(shape=(1,coords.shape[0],3))
-        xyz[0,:,:] = coords/10.0 # Coords in nanometers for mdTraj
+        xyz[0,:,:] = coords.in_units_of(unit.nanometers)/unit.nanometers
         traj = md.Trajectory(xyz, topology = self.sliced_top)
         secondary = geometry.compute_dssp(traj, simplified=False)
         strands = list(filter(lambda i: secondary[0,i] == 'E',range(secondary.shape[1])))
@@ -34,9 +34,8 @@ class DataPoints(object):
                 if res.idx == s:
                     for item in res.atoms:
                         if item.name == 'CA':
-                            coordinates.append(coords[item.idx,:])
+                            coordinates.append(coords[item.idx,:]/unit.angstroms)
                             self.index.append(item.idx)
-
 
         return np.asarray(coordinates)
 

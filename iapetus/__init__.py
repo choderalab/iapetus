@@ -8,7 +8,7 @@ Open source toolkit for predicting bacterial porin permeation
 from __future__ import absolute_import
 
 # Add imports here
-from .iapetus import *
+#from .iapetus import *
 
 # Handle versioneer
 from ._version import get_versions

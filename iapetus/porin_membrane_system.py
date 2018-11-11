@@ -39,7 +39,7 @@ class PorinMembraneSystem(object):
 
     """
 
-    def __init__(self, ligand_name, system, topology, positions, platform, membrane=None, tolerance=1*unit.kilojoule/unit.mole, max_iterations=2000):
+    def __init__(self, ligand_name, system, topology, positions, platform, membrane=None, tolerance=0.1*unit.kilojoule/unit.mole, max_iterations=0):
 
         """
         Parameters
@@ -98,6 +98,8 @@ class PorinMembraneSystem(object):
                                          'data/amber', ligand_name + '.inpcrd'))
         # Save porin indices
         top = md.Topology.from_openmm(topology)
+        self.ligand_resseq = top.select('resname ' + self.ligand)
+        print(ligand_resseq)
         if membrane is not None:
             porin_indices = top.select('(protein and not resname ' + membrane + ')')
         else:
@@ -107,6 +109,7 @@ class PorinMembraneSystem(object):
         self.structure = self._place_ligand(structure, ligand_structure, porin_indices)
         # Select atoms to be freezed during the minimization
         top = md.Topology.from_openmm(self.structure.topology)
+
         if membrane is not None:
             atoms_to_freeze = top.select('protein or resname  ' + membrane + ' or resname ' + self.ligand)
         else:
