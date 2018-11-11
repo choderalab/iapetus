@@ -11,13 +11,14 @@ import time
 import pathlib
 import logging
 import argparse
-
+import parmed as pmd
 import progressbar
 
 import mdtraj as md
 import numpy as np
 
 import yank
+import pickle
 
 from simtk import openmm, unit
 from simtk.openmm import app
@@ -25,6 +26,11 @@ from simtk.openmm import app
 import openmmtools
 from openmmtools.constants import kB
 from openmmtools import integrators, states, mcmc
+
+from iapetus.membrane_modeller import MembraneModeller
+from iapetus.porin_membrane_system import PorinMembraneSystem
+from iapetus.data_points import DataPoints
+from iapetus.cylinder_fitting import CylinderFitting
 
 logger = logging.getLogger(__name__)
 
@@ -38,26 +44,19 @@ class SimulatePermeation(object):
         Recommended, but can be slow on CPUs.
 
     """
-    def __init__(self, gromacs_input_path=None, ligand_resseq=None, output_filename=None, verbose=False):
+    def __init__(self, topology, ligand_resseq=None, membrane=None, output_filename=None):
+
         """Set up a SAMS permeation PMF simulation.
 
         Parameters
         ----------
-        gromacs_input_path : str, optional, default=None
-            If specified, use gromacs files in this directory
-        ligand_resseq : str, optional, default='MOL'
-            Resdiue sequence id for ligand in reference PDB file
+        topology
+        membrane : str, optional, default=None
+
         output_filename : str, optional, default=None
             NetCDF output filename
-        verbose : bool, optional, default=False
-            If True, print verbose output
 
         """
-        # Setup general logging
-        logging.root.setLevel(logging.DEBUG)
-        logging.basicConfig(level=logging.DEBUG)
-        yank.utils.config_root_logger(verbose=verbose, log_file_path=None)
-
         self._setup_complete = False
 
         # Set default parameters
@@ -66,44 +65,30 @@ class SimulatePermeation(object):
         self.collision_rate = 1.0 / unit.picoseconds
         self.timestep = 4.0 * unit.femtoseconds
         self.n_steps_per_iteration = 1250
-        self.n_iterations = 10000
+        self.n_iterations = 60000
         self.checkpoint_interval = 50
         self.gamma0 = 10.0
         self.flatness_threshold = 10.0
         self.anneal_ligand = True
 
         # Check input
-        if gromacs_input_path is None:
-            raise ValueError('gromacs_input_path must be specified')
-        if ligand_resseq is None:
-            raise ValueError('ligand_resseq must be specified')
         if output_filename is None:
             raise ValueError('output_filename must be specified')
 
-        # Discover contents of the input path by suffix
-        contents = { pathlib.Path(filename).suffix : filename for filename in os.listdir(gromacs_input_path) }
-        gro_filename = os.path.join(gromacs_input_path, contents['.gro'])
-        top_filename = os.path.join(gromacs_input_path, contents['.top'])
-        pdb_filename = os.path.join(gromacs_input_path, contents['.pdb'])
+        self.ligand_resseq = ligand_resseq
 
-        # Load system files
-        print('Reading system from path: {}'.format(gromacs_input_path))
-        self.grofile = app.GromacsGroFile(gro_filename)
-        self.topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
-        self.pdbfile = app.PDBFile(pdb_filename)
+        # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicings
+        self.mdtraj_topology  = md.Topology.from_openmm(topology)
 
-        # Create MDTraj Trajectory for reference PDB file for use in atom selections and slicing
-        self.mdtraj_refpdb = md.load(pdb_filename)
-        self.mdtraj_topology = self.mdtraj_refpdb.topology
-        self.analysis_particle_indices = self.mdtraj_topology.select('not water')
+        if membrane is not None:
+            self.analysis_particle_indices = self.mdtraj_topology.select('not water and not resname ' + membrane)
+        else:
+            self.analysis_particle_indices = self.mdtraj_topology.select('not water')
 
         # Store output filename
         self.output_filename = output_filename
 
-        # Store ligand resseq
-        self.ligand_resseq = ligand_resseq
-
-    def _setup(self):
+    def _setup(self, topology, positions, box):
         """
         Set up calculation.
 
@@ -117,21 +102,12 @@ class SimulatePermeation(object):
         self.kT = kB * self.temperature
         self.beta = 1.0 / self.kT
 
-        # Create the system
-        self.system = self._create_system()
-
         # Add a barostat
-        # TODO: Is this necessary, sicne ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
+        # TODO: Is this necessary, since ThermodynamicState handles this automatically? It may not correctly handle MonteCarloAnisotropicBarostat.
         self._add_barostat()
 
-        # Restrain protein atoms in space
-        # TODO: Allow protein atom selection to be configured
-        selection = '((residue 342 and resname GLY) or (residue 97 and resname ASP) or (residue 184 and resname SER)) and (name CA)'
-        protein_atoms_to_restrain = self.mdtraj_topology.select(selection)
-        #self._restrain_protein(protein_atoms_to_restrain)
-
         # Create SamplerState for initial conditions
-        self.sampler_state = states.SamplerState(positions=self.grofile.positions, box_vectors=self.grofile.getPeriodicBoxVectors())
+        self.sampler_state = states.SamplerState(positions=positions, box_vectors=self.box)
 
         # Create reference thermodynamic state
         self.reference_thermodynamic_state = states.ThermodynamicState(system=self.system, temperature=self.temperature, pressure=self.pressure)
@@ -140,13 +116,21 @@ class SimulatePermeation(object):
         if self.anneal_ligand:
             self._anneal_ligand()
 
+        positions = self.sampler_state.positions
+        structure = pmd.openmm.load_topology(topology, system=self.system, xyz=positions)
+
         # Create ThermodynamicStates for umbrella sampling along pore
-        self.thermodynamic_states = self._create_thermodynamic_states(self.reference_thermodynamic_state)
+        self.thermodynamic_states = self._auto_create_thermodynamic_states(structure, topology, self.reference_thermodynamic_state)
 
         # Minimize initial thermodynamic state
         # TODO: Select initial thermodynamic state based on which state has minimum energy
         initial_state_index = 0
-        self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
+        #self.sampler_state = self._minimize_sampler_state(self.thermodynamic_states[initial_state_index], self.sampler_state)
+
+        #pickle.dump(self.sampler_state, open('sampler_state.obj', 'wb'))
+        #pickle.dump(self.reference_thermodynamic_state, open('reference_thermodynamic_state.obj', 'wb'))
+        #pickle.dump(self.thermodynamic_states, open('thermodynamic_states.obj', 'wb'))
+        #pickle.dump(self.system, open('system.obj', 'wb'))
 
         # Set up simulation
         from yank.multistate import SAMSSampler, MultiStateReporter
@@ -159,40 +143,24 @@ class SimulatePermeation(object):
                                sampler_states=[self.sampler_state], initial_thermodynamic_states=[initial_state_index],
                                storage=self.reporter)
 
-    def run(self, platform_name=None, precision='auto', max_n_contexts=None, resume=False):
+
+    def run(self, system, topology, positions, box, resume=False):
+
         """
         Run the sampler for a specified number of iterations
 
         Parameters
-        ----------
-        platform_name : str, optional, default=None
-            Name of platform, or 'fastest' if fastest platform should be automatically selected
-        precision : str, optional, default='auto'
-            Precision to use, or None to automatically select ('mixed' is used if supported)
-        max_n_contexts : int, optional, default=None
-            Maximum number of contexts to use
+
         resume : bool, default=False
                     If True, resume the simulation
 
         """
-        # Configure ContextCache, platform and precision
-        from yank.experiment import ExperimentBuilder
-        platform = ExperimentBuilder._configure_platform(platform_name, precision)
-
-        try:
-            openmmtools.cache.global_context_cache.platform = platform
-        except RuntimeError:
-            # The cache has been already used. Empty it before switching platform.
-            openmmtools.cache.global_context_cache.empty()
-            openmmtools.cache.global_context_cache.platform = platform
-
-        if max_n_contexts is not None:
-            openmmtools.cache.global_context_cache.capacity = max_n_contexts
-
+        self.system = system
+        self.box = box
         if resume:
             # Resume the simulation
             print('Storage {} exists; resuming...'.format(self.output_filename))
-            from yank.multistate import SAMSSampler, MultiStateReporter
+            from yank.multistate import SAMSSampler
             sampler = SAMSSampler.from_storage(self.output_filename)
             # Run the remainder of the simulation
             if sampler._iteration < self.n_iterations:
@@ -205,10 +173,138 @@ class SimulatePermeation(object):
         else:
             # Set up the simulation if it has not yet been set up
             if not self._setup_complete:
-                self._setup()
+                self._setup(topology, positions, box)
 
                 # Run the simulation
+                #print(self.simulation.sampler_states[0].collective_variables)
+                #print(self.simulation.sampler_states[0].potential_energy)
                 self.simulation.run()
+                #ts = self.simulation._thermodynamic_states[self.simulation._replica_thermodynamic_states[0]]
+                #context, _ = openmmtools.cache.global_context_cache.get_context(ts)
+                #self.simulation.sampler_states[0].update_from_context(context, ignore_positions=True, ignore_velocities=True)
+                #print(self.simulation.sampler_states[0].collective_variables)
+                #print(self.simulation.sampler_states[0].potential_energy)
+                #for i in range(10):
+                #    self.simulation.extend(n_iterations=1)
+                #    self.simulation.sampler_states[0].update_from_context(context, ignore_positions=True, ignore_velocities=True)
+                #    print(self.simulation.sampler_states[0].collective_variables)
+                #    print(self.simulation.sampler_states[0].potential_energy)
+
+
+    def _auto_create_thermodynamic_states(self, structure, topology, reference_thermodynamic_state, spacing=0.25*unit.angstroms):
+        """
+        Create thermodynamic states for sampling along pore axis.
+        """
+        topo = md.Topology.from_openmm(topology)
+        data =  DataPoints(structure, topo)
+        data.writeCoordinates(open('cylinder.xyz', 'w'))
+        cylinder = CylinderFitting(data.coordinates)
+        print(cylinder.vmdCommands(), file=open('vmd_commands.txt', 'w'))
+        b_index, t_index = cylinder.atomsInExtremes(data.coordinates,n=5)
+        cylinder.writeExtremesCoords(data.coordinates, b_index, t_index, open('extremes.xyz', 'w'))
+        bottom_atoms = []
+        top_atoms = []
+        for idx in b_index:
+            bottom_atoms.append(data.index[idx])
+        for idx in t_index:
+            top_atoms.append(data.index[idx])
+
+        axis_distance = cylinder.height*unit.angstroms
+
+        selection = '(residue {}) and (mass > 1.5)'.format(self.ligand_resseq)
+        print('Determining ligand atoms using "{}"...'.format(selection))
+        ligand_atoms = self.mdtraj_topology.select(selection)
+
+        expansion_factor = 1.3
+        nstates = int(expansion_factor * axis_distance / spacing) + 1
+        print('nstates: {}'.format(nstates))
+        sigma_y = axis_distance / float(nstates)  # stddev of force-free fluctuations in y-axis
+        K_y = self.kT / (sigma_y**2)  # spring constant
+
+        print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
+
+        # Compute restraint width
+        scale_factor = 0.25
+        sigma_xz = scale_factor * cylinder.r*unit.angstroms # stddev of force-free fluctuations in xz-plane
+        K_xz = self.kT / (sigma_xz**2)  # spring constant
+
+        Kmax = K_y
+        Kmin = K_xz
+        dr = axis_distance * (expansion_factor - 1.0)/2.0
+        rmax = axis_distance + dr
+        rmin = - dr
+
+        # Create restraint state that encodes this axis
+        print('Creating restraint...')
+        from yank.restraints import RestraintState
+
+        # Collective variable definitions
+        common = 'r = distance(g1,g2);'
+        common += 'theta = angle(g1,g2,g3);'
+        r_parallel = openmm.CustomCentroidBondForce(3, 'r*cos(theta);' + common)
+        r_orthogonal = openmm.CustomCentroidBondForce(3, 'r*sin(theta);' + common)
+
+        for cv in [r_parallel, r_orthogonal]:
+            cv.addGroup([int(index) for index in ligand_atoms])
+            cv.addGroup([int(index) for index in bottom_atoms])
+            cv.addGroup([int(index) for index in top_atoms])
+            cv.addBond([0,1,2], [])
+
+        energy_parallel = '(K_parallel/2)*(r_parallel-r0)^2;'
+        energy_parallel += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        self.cvforce_parallel = openmm.CustomCVForce(energy_parallel)
+        self.cvforce_parallel.addCollectiveVariable('r_parallel', r_parallel)
+
+        energy_orthogonal = '(1/2)*(Kmin + S*(Kmax - Kmin))*(r_orthogonal^2);'
+        energy_orthogonal += 'S = 1 - step(z_ext-z)*(1 + u^3*(15*u - 6*u^2 - 10));'
+        energy_orthogonal += 'u = step(z-z_int)*(z - z_int)/(z_ext - z_int);'
+        energy_orthogonal += 'z = abs(r0-z_c);'
+        energy_orthogonal += 'r0 = lambda_restraints * (rmax - rmin) + rmin;'
+        self.cvforce_orthogonal = openmm.CustomCVForce(energy_orthogonal)
+        self.cvforce_orthogonal.addCollectiveVariable('r_orthogonal', r_orthogonal)
+        for force in [self.cvforce_parallel, self.cvforce_orthogonal]:
+            force.addGlobalParameter('rmax', rmax)
+            force.addGlobalParameter('rmin', rmin)
+            force.addGlobalParameter('lambda_restraints', 1.0)
+
+        self.cvforce_parallel.addGlobalParameter('K_parallel', K_y)
+
+        self.cvforce_orthogonal.addGlobalParameter('Kmax', Kmax )
+        self.cvforce_orthogonal.addGlobalParameter('Kmin', Kmin )
+        self.cvforce_orthogonal.addGlobalParameter('z_c', axis_distance/2.0)
+        self.cvforce_orthogonal.addGlobalParameter('z_int', 0.8*(axis_distance/2.0))
+        self.cvforce_orthogonal.addGlobalParameter('z_ext', 1.3*(axis_distance/2.0))
+
+        self.system.addForce(self.cvforce_parallel)
+        self.system.addForce(self.cvforce_orthogonal)
+        # Update reference thermodynamic state
+        print('Updating system in reference thermodynamic state...')
+        self.reference_thermodynamic_state.set_system(self.system, fix_state=True)
+
+        ## Create alchemical state
+        ##from openmmtools.alchemy import AlchemicalState
+        ##alchemical_state = AlchemicalState.from_system(self.reference_thermodynamic_state.system)
+
+        # Create restraint state
+        restraint_state = RestraintState(lambda_restraints=1.0)
+
+        # Create thermodynamic states to be sampled
+        # TODO: Should we include an unbiased state?
+        initial_time = time.time()
+        thermodynamic_states = list()
+        ##compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[alchemical_state, restraint_state])
+        compound_state = states.CompoundThermodynamicState(self.reference_thermodynamic_state, composable_states=[restraint_state])
+        for lambda_restraints in np.linspace(0, 1, nstates):
+            thermodynamic_state = copy.deepcopy(compound_state)
+            thermodynamic_state.lambda_restraints = lambda_restraints
+        #    #thermodynamic_state.lambda_sterics = 1.0
+        #    #thermodynamic_state.lambda_electrostatics = 1.0
+            thermodynamic_states.append(thermodynamic_state)
+        elapsed_time = time.time() - initial_time
+        print('Creating thermodynamic states took %.3f s' % elapsed_time)
+
+        return thermodynamic_states
+
 
     def _create_thermodynamic_states(self, reference_thermodynamic_state, spacing=0.25*unit.angstroms):
         """
@@ -259,15 +355,17 @@ class SimulatePermeation(object):
         expansion_factor = 1.3
         nstates = int(expansion_factor * axis_distance / spacing) + 1
         print('nstates: {}'.format(nstates))
-        sigma_y = axis_distance / float(nstates) # stddev of force-free fluctuations in y-axis
-        K_y = self.kT / (sigma_y**2) # spring constant
+
+        sigma_y = axis_distance / float(nstates)  # stddev of force-free fluctuations in y-axis
+        K_y = self.kT / (sigma_y**2)  # spring constant
+
         print('vertical sigma_y = {:.3f} A'.format(sigma_y / unit.angstroms))
 
         # Compute restraint width
         # TODO: Come up with a better way to define pore width?
         scale_factor = 0.25
-        sigma_xz = scale_factor * unit.sqrt( (axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2 )  # stddev of force-free fluctuations in xz-plane
-        K_xz = self.kT / (sigma_xz**2) # spring constant
+        sigma_xz = scale_factor * unit.sqrt((axis_center[0] - pore_bottom[0])**2 + (axis_center[2] - pore_bottom[2])**2)  # stddev of force-free fluctuations in xz-plane
+        K_xz = self.kT / (sigma_xz**2)  # spring constant
         print('in-plane sigma_xz = {:.3f} A'.format(sigma_xz / unit.angstroms))
 
         dr = axis_distance * (expansion_factor - 1.0)/1.0
@@ -325,33 +423,6 @@ class SimulatePermeation(object):
 
     def _get_reference_coordinates(self, atom):
         return self.mdtraj_refpdb.xyz[0,atom,:] * unit.nanometers
-
-    def _create_system(self):
-        """Create the System.
-        """
-        # Create System
-        print('Creating System...')
-        # TODO: Allow these to be user-specified parameters
-        if self.pressure is None:
-            # We are simulating in a vacuum
-            nonbonded_method = app.NoCutoff
-        else:
-            # We are simulating in solvent
-            nonbonded_method = app.PME
-        kwargs = { 'nonbondedMethod' : nonbonded_method, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
-        system = self.topfile.createSystem(**kwargs)
-
-        # Fix particles with zero LJ sigma
-        for force in system.getForces():
-            if force.__class__.__name__ == 'NonbondedForce':
-                for index in range(system.getNumParticles()):
-                    [charge, sigma, epsilon] = force.getParticleParameters(index)
-                    if sigma / unit.nanometers == 0.0:
-                        force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
-
-        print('System has {} particles'.format(system.getNumParticles()))
-
-        return system
 
     def _alchemically_modify_ligand(self, reference_system):
         """
@@ -456,8 +527,8 @@ class SimulatePermeation(object):
         """
         # TODO: Allow sigma_protein to be configured
         print('Adding restraints to protein...')
-        sigma_protein = 2.0 * unit.angstroms # stddev of fluctuations of protein atoms
-        K_protein = self.kT / (sigma_protein**2) # spring constant
+        sigma_protein = 2.0 * unit.angstroms  # stddev of fluctuations of protein atoms
+        K_protein = self.kT / (sigma_protein**2)  # spring constant
         energy_expression = '(K_protein/2)*((x-x0)^2 + (y-y0)^2 + (z-z0)^2);'
         force = openmm.CustomExternalForce(energy_expression)
         force.addGlobalParameter('K_protein', K_protein)
@@ -554,14 +625,226 @@ class SimulatePermeation(object):
 
         return sampler_state
 
+
+class IapetusSystem(object):
+
+    """
+    Set up the ligand-porin(-membrane) OpenMM System_ for the PMF calculation.
+    Handle both Gromacs files and MemProtMD_ database.
+
+    .. _System : http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html#simtk.openmm.openmm.System
+    .. _MemProtMD: http://memprotmd.bioch.ox.ac.uk/home/
+    """
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+
+        """
+        source : str
+            The database
+        ligand_name : str
+            The name of the ligand
+        ligand_resseq : str, optional, default='MOL'
+            Residue sequence id for ligand in reference PDB file
+
+        """
+
+        self.source = source
+        self.ligand_name = ligand_name
+        self.topology = None
+        self.positions = None
+        self.pdbfile = None
+
+    def _get_pdb(self):
+        return self.pdfile
+
+    def get_positions(self, platform=None):
+        return self.positions
+
+    def get_topology(self):
+        return self.topology
+
+    def _system(self, kwargs):
+        pass
+
+    def create_system(self, pressure=None):
+        """Create an OpenMM System.
+        """
+        # Create System
+        print('Creating System...')
+        # TODO: Allow these to be user-specified parameters
+        if pressure is None:
+            # We are simulating in a vacuum
+            nonbonded_method = app.NoCutoff
+        else:
+            # We are simulating in solvent
+            nonbonded_method = app.PME
+        kwargs = { 'nonbondedMethod' : nonbonded_method, 'constraints' : app.HBonds, 'rigidWater' : True, 'ewaldErrorTolerance' : 1.0e-4, 'removeCMMotion' : False, 'hydrogenMass' : 3.0*unit.amu }
+        return self._fix_particle_sigmas(self._system(kwargs))
+
+    def _fix_particle_sigmas(self, system):
+        # Fix particles with zero LJ sigma
+        for force in system.getForces():
+            if force.__class__.__name__ == 'NonbondedForce':
+                for index in range(system.getNumParticles()):
+                    [charge, sigma, epsilon] = force.getParticleParameters(index)
+                    if sigma / unit.nanometers == 0.0:
+                        force.setParticleParameters(index, charge, 1.0*unit.angstroms, epsilon)
+        return system
+
+    def get_ligand_resseq(self):
+        pass
+
+
+class GromacsSystem(IapetusSystem):
+
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+        # Check input
+        self.ligand_resseq = ligand_resseq
+        if ligand_resseq is None:
+            raise ValueError('ligand_resseq must be specified')
+        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(source + '/' + ligand_name)}
+        super().__init__(source, ligand_name, ligand_resseq, membrane)
+
+    def _get_pdb(self):
+        pdb_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.pdb'])
+        return app.PDBFile(pdb_filename)
+
+    def get_positions(self, platform=None):
+        gro_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.gro'])
+        self.grofile = app.GromacsGroFile(gro_filename)
+        return self.grofile.positions
+
+    def get_topology(self):
+        top_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.top'])
+        topology = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors()).topology
+        return topology
+
+    def get_box(self):
+        box = self.grofile.getPeriodicBoxVectors()
+        return box
+
+    def _system(self, kwargs):
+        top_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.top'])
+        topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
+        return topfile.createSystem(**kwargs)
+
+    def get_ligand_resseq(self):
+        return self.ligand_resseq
+
+
+class MemProtMdSystem(IapetusSystem):
+
+    """
+
+    """
+    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+        # Discover contents of the input path by suffix
+        self.membrane = membrane
+        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(source)}
+        super().__init__(source, ligand_name, ligand_resseq, membrane)
+
+    def _get_pdb(self):
+        pdb_filename = os.path.join(self.source, self.contents['.pdb'])
+        return app.PDBFile(pdb_filename)
+
+    def get_positions(self, platform=None):
+        pdbfile = self._get_pdb()
+        modeller = MembraneModeller(pdbfile.topology,pdbfile.positions)
+        modeller.modify_topology()
+        forcefield = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+        modeller.addHydrogens(forcefield=forcefield)
+        system = forcefield.createSystem(modeller.topology,
+                                         nonbondedMethod=app.PME,
+                                         rigidWater=True,
+                                         nonbondedCutoff=1*unit.nanometer)
+        integrator = openmm.VerletIntegrator(0.5*unit.femtoseconds)
+        simulation = app.Simulation(modeller.topology, system, integrator, platform)
+        simulation.context.setPositions(modeller.positions)
+        simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
+        # Minimize the system after adding hydrogens
+        simulation.minimizeEnergy(maxIterations=0)
+        # Run a few MD steps to check the system has no overlaps
+        simulation.step(100000)
+        state = simulation.context.getState(getEnergy=True)
+        logger.debug('energy after adding H {:8.3f}kT'.format(state.getPotentialEnergy()._value))
+        positions = simulation.context.getState(getPositions=True).getPositions()
+        del system, integrator, simulation.context
+        # Add the ligand
+        # rigidWater False is required for ParMed to access water paramters
+        system_md = forcefield.createSystem(modeller.topology,
+                                             nonbondedMethod=app.PME,
+                                             rigidWater=False,
+                                             nonbondedCutoff=1*unit.nanometer)
+        self.ligand_system = PorinMembraneSystem(self.ligand_name, system_md, modeller.topology, positions, platform, membrane = self.membrane, max_iterations=0)
+        integrator = openmm.LangevinIntegrator(300*unit.kelvin, 1.0/unit.picoseconds, 2*unit.femtosecond)
+        simulation = app.Simulation(self.ligand_system.structure.topology, self.ligand_system.system, integrator, platform)
+        simulation.context.setPositions(self.ligand_system.structure.positions)
+        state = simulation.context.getState(getEnergy=True)
+        logger.debug('energy after adding ligand {:8.3f}kT'.format(state.getPotentialEnergy()._value))
+        self.positions = simulation.context.getState(getPositions=True).getPositions()
+        app.PDBxFile.writeFile(self.ligand_system.structure.topology,self.positions,open("mem_prot_md_system.pdbx", 'w'))
+        del simulation.context
+        return self.positions
+
+    def get_topology(self):
+        topology = self.ligand_system.structure.topology
+        return topology
+
+    def get_box(self):
+        box = self.ligand_system.structure.topology.getPeriodicBoxVectors()
+        return box
+
+    def _system(self, kwargs):
+        return self.ligand_system.system
+
+    def get_ligand_resseq(self):
+        return self.ligand_system.ligand_resseq
+
+class PlatformSettings(object):
+
+    def __init__(self, platform_name=None, precision=None, max_n_contexts=None):
+        """
+        Parameters
+        ----------
+        platform_name : str, optional, default=None
+            Name of platform, or 'fastest' if fastest platform should be automatically selected
+        precision : str, optional, default='auto'
+            Precision to use, or None to automatically select ('mixed' is used if supported)
+        max_n_contexts : int, optional, default=None
+            Maximum number of contexts to use
+        """
+        # Configure ContextCache, platform and precision
+        from yank.experiment import ExperimentBuilder
+        self.platform = ExperimentBuilder._configure_platform(platform_name, precision)
+
+        try:
+            openmmtools.cache.global_context_cache.platform = self.platform
+        except RuntimeError:
+            # The cache has been already used. Empty it before switching platform.
+            openmmtools.cache.global_context_cache.empty()
+            openmmtools.cache.global_context_cache.platform = self.platform
+
+        if max_n_contexts is not None:
+            openmmtools.cache.global_context_cache.capacity = self.max_n_contexts
+
+class LoggerSettings(object):
+
+    def __init__(self, verbose=False):
+        # Setup general logging
+        logging.root.setLevel(logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
+        yank.utils.config_root_logger(verbose=verbose, log_file_path=None)
+
 def main():
     """Set up and run a porin permeation PMF calculation.
     """
 
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
-    parser.add_argument('--gromacs', dest='gromacs_input_path', action='store',
-                        help='gromacs input path')
-    parser.add_argument('--ligseq', dest='ligand_resseq', action='store',
+    # Choose a better name
+    parser.add_argument('--source', dest='source', action='store',
+                        help='specify which type of input data to use: "Gromacs" or "MemProtMD"')
+    parser.add_argument('--ligand_name', dest='ligand_name', action='store',
+                        help='the name of the ligand')
+    parser.add_argument('--ligseq', dest='ligand_resseq', action='store', default=None,
                         help='ligand residue sequence id')
     parser.add_argument('--output', dest='output_filename', action='store', default='output.nc',
                         help='output netcdf filename (default: output.nc)')
@@ -581,23 +864,44 @@ def main():
                         help='Run a vacuum simulation for testing')
 
     args = parser.parse_args()
+    gromacs = mem_prot_md = False
 
     # Check all required arguments have been provided
-    if (args.gromacs_input_path is None) or (args.ligand_resseq is None):
+    if (args.source is None):
         parser.print_help(sys.stderr)
         sys.exit(1)
 
-    # Determine ligand residue name
-    ligand_resseq = args.ligand_resseq
-
     # Determine the path to gromacs input
-    gromacs_input_path = os.path.abspath(args.gromacs_input_path)
+    if (args.ligand_name is not None):
+        ligand_name = os.path.abspath(args.ligand_name)
 
     # Determine output filename
     output_filename = os.path.abspath(args.output_filename)
 
-    simulation = SimulatePermeation(gromacs_input_path=gromacs_input_path, ligand_resseq=ligand_resseq, output_filename=output_filename, verbose=args.verbose)
     resume = os.path.exists(output_filename)
+
+    platform_settings = PlatformSettings(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts)
+    LoggerSettings(verbose=args.verbose)
+    # Set up the system
+    if args.source == 'gromacs':
+        membrane = 'None'
+        system = GromacsSystem(args.source, args.ligand_name, ligand_resseq=args.ligand_resseq, membrane=None)
+    else:
+        membrane = 'DPPC'
+        system = MemProtMdSystem(args.source, args.ligand_name, ligand_resseq=None, membrane=membrane)
+
+    positions = system.get_positions(platform=platform_settings.platform)
+    topology = system.get_topology()
+    box = system.get_box()
+    ligand_resseq = system.get_ligand_resseq()
+
+    # Set up the calculation
+    simulation = SimulatePermeation(topology, ligand_resseq=ligand_resseq, membrane=membrane, output_filename=output_filename)
+
+    if not resume:
+        openmm_system = system.create_system(pressure=simulation.pressure)
+        print('System has {} particles'.format(openmm_system.getNumParticles()))
+
 
     simulation.n_iterations = args.n_iterations
     simulation.n_steps_per_iteration = args.n_steps_per_iteration
@@ -605,10 +909,13 @@ def main():
     if not resume:
         if args.testmode:
             simulation.pressure = None
-            simulation.anneal_ligand = False
+
 
     # Run the simulation
-    simulation.run(platform_name=args.platform, precision=args.precision, max_n_contexts=args.max_n_contexts, resume=resume)
+    simulation.run(openmm_system, topology, positions, box, resume=resume)
+
+
+  
 
 if __name__ == "__main__":
     # Do something if this file is invoked on its own

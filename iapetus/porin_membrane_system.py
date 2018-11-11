@@ -39,7 +39,7 @@ class PorinMembraneSystem(object):
 
     """
 
-    def __init__(self, ligand_name, system, topology, positions, platform, membrane=None, max_iterations=2000):
+    def __init__(self, ligand_name, system, topology, positions, platform, membrane=None, tolerance=0.1*unit.kilojoule/unit.mole, max_iterations=0):
 
         """
         Parameters
@@ -56,6 +56,8 @@ class PorinMembraneSystem(object):
             Platform used by OpenMM
         membrane : str, optional, default=None
             The name of the membrane
+        tolerance : unit.Quantity compatible with kilojoules_per_mole/nanometer, optional, default=1.0*unit.kilojoules_per_mole/unit.angstroms
+            Minimization will be terminated when RMS force reaches this tolerance
         max_iterations : int, optional, default=2000
             Maximum number of iterations for minimization
                 If 0, minimization continues until converged
@@ -96,6 +98,8 @@ class PorinMembraneSystem(object):
                                          'data/amber', ligand_name + '.inpcrd'))
         # Save porin indices
         top = md.Topology.from_openmm(topology)
+        self.ligand_resseq = top.select('resname ' + self.ligand)
+        print(ligand_resseq)
         if membrane is not None:
             porin_indices = top.select('(protein and not resname ' + membrane + ')')
         else:
@@ -105,12 +109,13 @@ class PorinMembraneSystem(object):
         self.structure = self._place_ligand(structure, ligand_structure, porin_indices)
         # Select atoms to be freezed during the minimization
         top = md.Topology.from_openmm(self.structure.topology)
+
         if membrane is not None:
             atoms_to_freeze = top.select('protein or resname  ' + membrane + ' or resname ' + self.ligand)
         else:
             atoms_to_freeze = top.select('protein or resname ' + self.ligand)
         # Perform the minimization of the ligand-porin-membrane
-        self._minimize_energy(atoms_to_freeze, platform, max_iterations)
+        self._minimize_energy(atoms_to_freeze, platform, tolerance, max_iterations)
 
     def _place_ligand(self, structure, ligand_structure, porin_indices):
 
@@ -142,7 +147,7 @@ class PorinMembraneSystem(object):
 
         return new_structure
 
-    def _minimize_energy(self, atoms_to_freeze, platform, max_iterations):
+    def _minimize_energy(self, atoms_to_freeze, platform, tolerance, max_iterations):
         """
         Use the OpenMM minimizeEnergy method in a system with the
         ligand-porin-membrane atoms frezeed. Only the water molecules and ions
@@ -154,6 +159,8 @@ class PorinMembraneSystem(object):
             List of atoms that won't move during minimization
         platform : object
             Platform used by OpenMM
+        tolerance : unit.Quantity compatible with kilojoules_per_mole/nanometer, optional, default=1.0*unit.kilojoules_per_mole/unit.angstroms
+            Minimization will be terminated when RMS force reaches this tolerance
         max_iterations : int, optional, default=2000
             Maximum number of iterations for minimization.
                 If 0, minimization continues until converged.
@@ -163,7 +170,7 @@ class PorinMembraneSystem(object):
         backup_system = self.structure.createSystem(nonbondedMethod=app.PME,
                                  nonbondedCutoff=1*unit.nanometer,
                                  rigidWater=True,
-                                 flexibleConstraints=True,
+                                 flexibleConstraints=False,
                                  constraints=app.HBonds,
                                  hydrogenMass=3*unit.amu,
                                  removeCMMotion=False)
@@ -174,6 +181,6 @@ class PorinMembraneSystem(object):
         integrator = mm.LangevinIntegrator(300*unit.kelvin, 1.0/unit.picoseconds, 2*unit.femtosecond)
         simulation = app.Simulation(self.structure.topology, backup_system, integrator, platform)
         simulation.context.setPositions(self.structure.positions)
-        simulation.minimizeEnergy(tolerance=1*unit.kilojoule/unit.mole, maxIterations=max_iterations)
+        simulation.minimizeEnergy(tolerance=tolerance, maxIterations=max_iterations)
         self.structure.positions = simulation.context.getState(getPositions=True).getPositions()
         del simulation.context, integrator
