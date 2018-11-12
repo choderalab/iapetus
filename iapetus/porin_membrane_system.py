@@ -114,6 +114,10 @@ class PorinMembraneSystem(object):
             atoms_to_freeze = top.select('protein or resname  ' + membrane + ' or resname ' + self.ligand)
         else:
             atoms_to_freeze = top.select('protein or resname ' + self.ligand)
+
+        for res in self.structure.residues:
+            if res.name == self.ligand:
+                self.ligand_resseq = res.idx
         # Perform the minimization of the ligand-porin-membrane
         self._minimize_energy(atoms_to_freeze, platform, tolerance, max_iterations)
 
