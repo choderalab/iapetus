@@ -117,7 +117,6 @@ class SimulatePermeation(object):
             self._anneal_ligand()
 
         positions = self.sampler_state.positions
-        print(positions)
         structure = pmd.openmm.load_topology(topology, system=self.system, xyz=positions)
 
         # Create ThermodynamicStates for umbrella sampling along pore
