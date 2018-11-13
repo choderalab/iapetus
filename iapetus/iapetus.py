@@ -27,15 +27,11 @@ import openmmtools
 from openmmtools.constants import kB
 from openmmtools import integrators, states, mcmc
 
-#from iapetus.membrane_modeller import MembraneModeller
-#from iapetus.porin_membrane_system import PorinMembraneSystem
-#from iapetus.data_points import DataPoints
-#from iapetus.cylinder_fitting import CylinderFitting
+from iapetus.membrane_modeller import MembraneModeller
+from iapetus.porin_membrane_system import PorinMembraneSystem
+from iapetus.data_points import DataPoints
+from iapetus.cylinder_fitting import CylinderFitting
 
-from membrane_modeller import MembraneModeller
-from porin_membrane_system import PorinMembraneSystem
-from data_points import DataPoints
-from cylinder_fitting import CylinderFitting
 logger = logging.getLogger(__name__)
 
 class SimulatePermeation(object):
