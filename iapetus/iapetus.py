@@ -27,11 +27,15 @@ import openmmtools
 from openmmtools.constants import kB
 from openmmtools import integrators, states, mcmc
 
-from iapetus.membrane_modeller import MembraneModeller
-from iapetus.porin_membrane_system import PorinMembraneSystem
-from iapetus.data_points import DataPoints
-from iapetus.cylinder_fitting import CylinderFitting
+#from iapetus.membrane_modeller import MembraneModeller
+#from iapetus.porin_membrane_system import PorinMembraneSystem
+#from iapetus.data_points import DataPoints
+#from iapetus.cylinder_fitting import CylinderFitting
 
+from membrane_modeller import MembraneModeller
+from porin_membrane_system import PorinMembraneSystem
+from data_points import DataPoints
+from cylinder_fitting import CylinderFitting
 logger = logging.getLogger(__name__)
 
 class SimulatePermeation(object):
@@ -117,6 +121,7 @@ class SimulatePermeation(object):
             self._anneal_ligand()
 
         positions = self.sampler_state.positions
+        print(positions)
         structure = pmd.openmm.load_topology(topology, system=self.system, xyz=positions)
 
         # Create ThermodynamicStates for umbrella sampling along pore
@@ -635,7 +640,7 @@ class IapetusSystem(object):
     .. _System : http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html#simtk.openmm.openmm.System
     .. _MemProtMD: http://memprotmd.bioch.ox.ac.uk/home/
     """
-    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, path, source, ligand_name, ligand_resseq=None, membrane=None):
 
         """
         source : str
@@ -646,7 +651,7 @@ class IapetusSystem(object):
             Residue sequence id for ligand in reference PDB file
 
         """
-
+        self.path = path
         self.source = source
         self.ligand_name = ligand_name
         self.topology = None
@@ -696,25 +701,26 @@ class IapetusSystem(object):
 
 class GromacsSystem(IapetusSystem):
 
-    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, path, source, ligand_name, ligand_resseq=None, membrane=None):
         # Check input
         self.ligand_resseq = ligand_resseq
+        self.path = path
         if ligand_resseq is None:
             raise ValueError('ligand_resseq must be specified')
-        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(source + '/' + ligand_name)}
-        super().__init__(source, ligand_name, ligand_resseq, membrane)
+        self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(path + '/' + source + '/' + ligand_name)}
+        super().__init__(path, source, ligand_name, ligand_resseq, membrane)
 
     def _get_pdb(self):
-        pdb_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.pdb'])
+        pdb_filename = os.path.join(self.path + '/' + self.source  + '/' + self.ligand_name, self.contents['.pdb'])
         return app.PDBFile(pdb_filename)
 
     def get_positions(self, platform=None):
-        gro_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.gro'])
+        gro_filename = os.path.join(self.path + '/' + self.source  + '/' + self.ligand_name, self.contents['.gro'])
         self.grofile = app.GromacsGroFile(gro_filename)
         return self.grofile.positions
 
     def get_topology(self):
-        top_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.top'])
+        top_filename = os.path.join(self.path + '/' + self.source  + '/' + self.ligand_name, self.contents['.top'])
         topology = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors()).topology
         return topology
 
@@ -723,7 +729,7 @@ class GromacsSystem(IapetusSystem):
         return box
 
     def _system(self, kwargs):
-        top_filename = os.path.join(self.source  + '/' + self.ligand_name, self.contents['.top'])
+        top_filename = os.path.join(self.path + '/' + self.source  + '/' + self.ligand_name, self.contents['.top'])
         topfile = app.GromacsTopFile(top_filename, periodicBoxVectors=self.grofile.getPeriodicBoxVectors())
         return topfile.createSystem(**kwargs)
 
@@ -736,7 +742,7 @@ class MemProtMdSystem(IapetusSystem):
     """
 
     """
-    def __init__(self, source, ligand_name, ligand_resseq=None, membrane=None):
+    def __init__(self, path, source, ligand_name, ligand_resseq=None, membrane=None):
         # Discover contents of the input path by suffix
         self.membrane = membrane
         self.contents = {pathlib.Path(filename).suffix: filename for filename in os.listdir(source)}
@@ -815,7 +821,7 @@ class PlatformSettings(object):
         # Configure ContextCache, platform and precision
         from yank.experiment import ExperimentBuilder
         self.platform = ExperimentBuilder._configure_platform(platform_name, precision)
-
+        self.max_n_contexts = max_n_contexts
         try:
             openmmtools.cache.global_context_cache.platform = self.platform
         except RuntimeError:
@@ -841,7 +847,9 @@ def main():
     parser = argparse.ArgumentParser(description='Compute a potential of mean force (PMF) for porin permeation.')
     # Choose a better name
     parser.add_argument('--source', dest='source', action='store',
-                        help='specify which type of input data to use: "Gromacs" or "MemProtMD"')
+                        help='specify which type of input data to use: "Gromacs" or "MemProtMD" ')
+    parser.add_argument('--path', dest='path', action='store',
+                        help='specify path of input files')
     parser.add_argument('--ligand_name', dest='ligand_name', action='store',
                         help='the name of the ligand')
     parser.add_argument('--ligseq', dest='ligand_resseq', action='store', default=None,
@@ -885,10 +893,10 @@ def main():
     # Set up the system
     if args.source == 'gromacs':
         membrane = 'None'
-        system = GromacsSystem(args.source, args.ligand_name, ligand_resseq=args.ligand_resseq, membrane=None)
+        system = GromacsSystem(args.path, args.source, args.ligand_name, ligand_resseq=args.ligand_resseq, membrane=None)
     else:
         membrane = 'DPPC'
-        system = MemProtMdSystem(args.source, args.ligand_name, ligand_resseq=None, membrane=membrane)
+        system = MemProtMdSystem(args.path, args.source, args.ligand_name, ligand_resseq=None, membrane=membrane)
 
     positions = system.get_positions(platform=platform_settings.platform)
     topology = system.get_topology()

@@ -98,8 +98,6 @@ class PorinMembraneSystem(object):
                                          'data/amber', ligand_name + '.inpcrd'))
         # Save porin indices
         top = md.Topology.from_openmm(topology)
-        self.ligand_resseq = top.select('resname ' + self.ligand)
-        print(ligand_resseq)
         if membrane is not None:
             porin_indices = top.select('(protein and not resname ' + membrane + ')')
         else:
